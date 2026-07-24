@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>new+ admin</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="admin-wrap">
+<div id="app"><div class="center-loading">Loading…</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+let sb;
+let state = { admin: null, tab: "users", users: [], requests: [], ads: [] };
+const root = () => document.getElementById("app");
+
+window.addEventListener("DOMContentLoaded", () => {
+  try { sb = initSupabase(); } catch (e) { return; }
+  boot();
+});
+
+const boot = safeRender(async function () {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && session.user.email) {
+    const { data: isAdmin } = await sb.rpc("is_admin");
+    if (isAdmin) { state.admin = { email: session.user.email }; return renderDashboard(); }
+    await sb.auth.signOut();
+  }
+  renderLogin();
+});
+
+function renderLogin() {
+  root().innerHTML = `
+    <div class="brand">new<span class="plus">+</span> <span style="font-size:14px;color:var(--cream-muted);font-family:var(--font-body)">admin</span></div>
+    <p>Staff access only.</p>
+    <div id="login-error"></div>
+    <label for="a-email">Email</label>
+    <input id="a-email" type="email" autocomplete="username">
+    <label for="a-pass">Password</label>
+    <input id="a-pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAdminLogin()">
+    <button class="btn-primary" onclick="doAdminLogin()">Log in</button>
+    <div class="hint" style="margin-top:16px">Admin accounts are created in the Supabase dashboard — see SETUP_GUIDE.md.</div>
+  `;
+}
+
+const doAdminLogin = safeRender(async function () {
+  const email = document.getElementById("a-email").value.trim();
+  const password = document.getElementById("a-pass").value;
+  const errEl = document.getElementById("login-error");
+  errEl.innerHTML = "";
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { errEl.innerHTML = `<div class="error-banner">Invalid email or password.</div>`; return; }
+  const { data: isAdmin } = await sb.rpc("is_admin");
+  if (!isAdmin) {
+    await sb.auth.signOut();
+    errEl.innerHTML = `<div class="error-banner">That account isn't on the admin list. Add its email to admin_allowlist in Supabase.</div>`;
+    return;
+  }
+  state.admin = { email: data.user.email };
+  renderDashboard();
+});
+
+// ---------- REALTIME: live-refresh + sound alert for new payment requests ----------
+let requestsChannel = null;
+function startRequestsRealtime() {
+  if (requestsChannel) return;
+  requestsChannel = sb
+    .channel("admin-subscription-requests")
+    .on("postgres_changes", { event: "*", schema: "public", table: "subscription_requests" }, async (payload) => {
+      const { data: requests } = await sb.from("subscription_requests")
+        .select("*, profiles(name, phone)").eq("status", "pending").order("created_at", { ascending: false });
+      state.requests = requests || [];
+      renderStats();
+      if (state.tab === "requests") renderRequestsTable();
+      if (payload.eventType === "INSERT" && payload.new?.status === "pending") {
+        playAlertSound();
+        flashTabTitle();
+      }
+    })
+    .subscribe();
+}
+
+function playAlertSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1175].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + i * 0.15 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.28);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+    });
+  } catch (e) { console.warn("Couldn't play alert sound:", e); }
+}
+
+const originalTitle = document.title;
+let titleFlashInterval = null;
+function flashTabTitle() {
+  if (titleFlashInterval) return;
+  let toggle = false;
+  titleFlashInterval = setInterval(() => {
+    document.title = toggle ? originalTitle : "🔔 New payment request";
+    toggle = !toggle;
+  }, 1000);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && titleFlashInterval) {
+    clearInterval(titleFlashInterval);
+    titleFlashInterval = null;
+    document.title = originalTitle;
+  }
+});
+
+// ---------- REALTIME: users list stays live without refreshing ----------
+let usersChannel = null;
+function startUsersRealtime() {
+  if (usersChannel) return;
+  usersChannel = sb
+    .channel("admin-profiles")
+    .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, async () => {
+      const { data: users } = await sb.from("profiles").select("*").order("created_at", { ascending: false });
+      state.users = users || [];
+      renderStats();
+      if (state.tab === "users") renderUsersTable();
+    })
+    .subscribe();
+}
+
+// ---------- REALTIME: ads list stays live without refreshing (e.g. two admin tabs open) ----------
+let adsChannel = null;
+function startAdsRealtime() {
+  if (adsChannel) return;
+  adsChannel = sb
+    .channel("admin-ads")
+    .on("postgres_changes", { event: "*", schema: "public", table: "ads" }, async () => {
+      const { data: ads } = await sb.from("ads").select("*").order("created_at", { ascending: false });
+      state.ads = ads || [];
+      if (state.tab === "ads") renderAdsTab();
+    })
+    .subscribe();
+}
+
+async function adminLogout() {
+  if (requestsChannel) { await sb.removeChannel(requestsChannel); requestsChannel = null; }
+  if (usersChannel) { await sb.removeChannel(usersChannel); usersChannel = null; }
+  if (adsChannel) { await sb.removeChannel(adsChannel); adsChannel = null; }
+  await sb.auth.signOut();
+  state.admin = null;
+  renderLogin();
+}
+
+// ---------- DASHBOARD SHELL ----------
+async function renderDashboard() {
+  root().innerHTML = `
+    <div class="admin-header">
+      <div class="brand">new<span class="plus">+</span> <span style="font-size:14px;color:var(--cream-muted);font-family:var(--font-body)">admin</span></div>
+      <div><span style="color:var(--cream-muted);font-size:13px;margin-right:12px">${escapeHtml(state.admin.email)}</span>
+      <button class="icon-btn" onclick="adminLogout()">Log out</button></div>
+    </div>
+    <div id="stats" class="stat-row"></div>
+    <div class="tabs">
+      <button class="tab ${state.tab === "users" ? "active" : ""}" onclick="switchTab('users')">Users</button>
+      <button class="tab ${state.tab === "requests" ? "active" : ""}" onclick="switchTab('requests')">Payment requests</button>
+      <button class="tab ${state.tab === "ads" ? "active" : ""}" onclick="switchTab('ads')">Ads</button>
+    </div>
+    <div id="tab-content"><div class="center-loading">Loading…</div></div>
+  `;
+  await loadAll();
+  startRequestsRealtime();
+  startUsersRealtime();
+  startAdsRealtime();
+}
+
+async function loadAll() {
+  const [{ data: users }, { data: requests }, { data: ads }] = await Promise.all([
+    sb.from("profiles").select("*").order("created_at", { ascending: false }),
+    sb.from("subscription_requests").select("*, profiles(name, phone)").eq("status", "pending").order("created_at", { ascending: false }),
+    sb.from("ads").select("*").order("created_at", { ascending: false })
+  ]);
+  state.users = users || [];
+  state.requests = requests || [];
+  state.ads = ads || [];
+  renderStats();
+  renderTab();
+}
+
+function renderStats() {
+  const active = state.users.filter(u => u.subscription_status === "active").length;
+  const deactivated = state.users.filter(u => !u.is_active).length;
+  document.getElementById("stats").innerHTML = `
+    <div class="stat-box"><div class="num">${state.users.length}</div><div class="label">Total users</div></div>
+    <div class="stat-box"><div class="num">${active}</div><div class="label">Active subscribers</div></div>
+    <div class="stat-box"><div class="num">${state.requests.length}</div><div class="label">Pending payments</div></div>
+    <div class="stat-box"><div class="num">${deactivated}</div><div class="label">Deactivated</div></div>
+  `;
+}
+
+function switchTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  event.target.classList.add("active");
+  renderTab();
+}
+
+function renderTab() {
+  if (state.tab === "users") renderUsersTable();
+  else if (state.tab === "requests") renderRequestsTable();
+  else renderAdsTab();
+}
+
+// ---------- USERS TAB ----------
+function renderUsersTable() {
+  const el = document.getElementById("tab-content");
+  if (!state.users.length) { el.innerHTML = `<div class="empty-state">No users yet.</div>`; return; }
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>Name</th><th>Phone</th><th>District</th><th>Subscription</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+      <tbody>
+        ${state.users.map(u => `
+          <tr>
+            <td data-label="Name">${escapeHtml(u.name || "—")}</td>
+            <td data-label="Phone">${escapeHtml(u.phone)}</td>
+            <td data-label="District">${escapeHtml(u.district || "—")}</td>
+            <td data-label="Subscription"><span class="badge badge-${u.subscription_status}">${u.subscription_status}</span></td>
+            <td data-label="Status">${u.is_active ? `<span class="badge badge-active">active</span>` : `<span class="badge badge-inactive">deactivated</span>`}</td>
+            <td data-label="Joined">${timeAgo(u.created_at)}</td>
+            <td data-label="Actions"><div class="action-cell">
+              ${u.is_active
+                ? `<button class="btn-small btn-danger" onclick="toggleActive('${u.id}', false)">Deactivate</button>`
+                : `<button class="btn-small btn-success" onclick="toggleActive('${u.id}', true)">Reactivate</button>`}
+              <button class="btn-small btn-danger" onclick="deleteUser('${u.id}')">Delete</button>
+            </div></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+const toggleActive = safeRender(async function (userId, makeActive) {
+  await sb.from("profiles").update({ is_active: makeActive }).eq("id", userId);
+  await loadAll();
+});
+
+const deleteUser = safeRender(async function (userId) {
+  const user = state.users.find(u => u.id === userId);
+  const label = user?.name || user?.phone || "this user";
+  if (!confirm(`Permanently delete ${label}? This removes their account, chats, messages, and photos for good — it can't be undone.`)) return;
+
+  // best-effort storage cleanup so deleted users don't leave orphaned files
+  // behind (avatars and statuses are keyed by profile folder; chat photos
+  // are keyed by conversation folder, so look up their conversations first)
+  try {
+    const { data: avatarFiles } = await sb.storage.from("avatars").list(userId);
+    if (avatarFiles?.length) await sb.storage.from("avatars").remove(avatarFiles.map(f => `${userId}/${f.name}`));
+  } catch (e) { console.warn("avatar cleanup failed", e); }
+  try {
+    const { data: statusFiles } = await sb.storage.from("statuses").list(userId);
+    if (statusFiles?.length) await sb.storage.from("statuses").remove(statusFiles.map(f => `${userId}/${f.name}`));
+  } catch (e) { console.warn("status photo cleanup failed", e); }
+  try {
+    const { data: convos } = await sb.from("conversations").select("id").or(`user_a.eq.${userId},user_b.eq.${userId}`);
+    for (const c of (convos || [])) {
+      const { data: files } = await sb.storage.from("chat-images").list(c.id);
+      if (files?.length) await sb.storage.from("chat-images").remove(files.map(f => `${c.id}/${f.name}`));
+    }
+  } catch (e) { console.warn("chat photo cleanup failed", e); }
+
+  const { error } = await sb.from("profiles").delete().eq("id", userId);
+  if (error) { alert(error.message); return; }
+  await loadAll();
+});
+
+// ---------- REQUESTS TAB ----------
+function renderRequestsTable() {
+  const el = document.getElementById("tab-content");
+  if (!state.requests.length) { el.innerHTML = `<div class="empty-state">No pending payment requests.</div>`; return; }
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>User</th><th>Phone</th><th>Network</th><th>Submitted</th><th>Actions</th></tr></thead>
+      <tbody>
+        ${state.requests.map(r => `
+          <tr>
+            <td data-label="User">${escapeHtml(r.profiles?.name || "—")}</td>
+            <td data-label="Phone">${escapeHtml(r.profiles?.phone || "—")}</td>
+            <td data-label="Network">${escapeHtml(r.network)}</td>
+            <td data-label="Submitted">${timeAgo(r.created_at)}</td>
+            <td data-label="Actions"><div class="action-cell">
+              <button class="btn-small btn-success" onclick="approveRequest('${r.id}', '${r.profile_id}')">Approve</button>
+              <button class="btn-small btn-danger" onclick="rejectRequest('${r.id}')">Reject</button>
+            </div></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+const approveRequest = safeRender(async function (reqId, profileId) {
+  const expires = new Date(); expires.setDate(expires.getDate() + 30);
+  await sb.from("subscription_requests").update({ status: "approved" }).eq("id", reqId);
+  await sb.from("profiles").update({ subscription_status: "active", subscription_expires_at: expires.toISOString() }).eq("id", profileId);
+  await loadAll();
+});
+const rejectRequest = safeRender(async function (reqId) {
+  await sb.from("subscription_requests").update({ status: "rejected" }).eq("id", reqId);
+  await loadAll();
+});
+
+// ---------- ADS TAB ----------
+function renderAdsTab() {
+  const el = document.getElementById("tab-content");
+  el.innerHTML = `
+    <div class="card">
+      <h3>Add a text banner</h3>
+      <p style="margin-bottom:8px">Shows at the top of the directory, above the people list.</p>
+      <label for="ad-message">Banner message</label>
+      <input id="ad-message" type="text" maxlength="140" placeholder="e.g. Invite a friend and both get 3 days free">
+      <label for="ad-link">Link (optional — where a tap takes the user)</label>
+      <input id="ad-link" type="text" placeholder="https://…">
+      <div id="ad-error"></div>
+      <button class="btn-primary" onclick="uploadAd()">Add banner</button>
+    </div>
+    <h3 style="margin-top:20px">Current banners</h3>
+    <div id="ads-list">${state.ads.length ? "" : `<div class="empty-state">No banners yet — add one above.</div>`}</div>
+  `;
+  if (!state.ads.length) return;
+  const listEl = document.getElementById("ads-list");
+  listEl.innerHTML = state.ads.map(ad => {
+    return `
+      <div class="card" style="display:flex;gap:14px;align-items:center">
+        <div style="flex:1;min-width:0">
+          <div style="color:var(--cream);font-size:14px;margin-bottom:4px">${escapeHtml(ad.message || "")}</div>
+          <div style="font-size:12.5px;color:var(--cream-muted);word-break:break-all">${escapeHtml(ad.link_url || "No link")}</div>
+          <span class="badge badge-${ad.is_active ? "active" : "inactive"}">${ad.is_active ? "active" : "paused"}</span>
+        </div>
+        <div class="action-cell">
+          <button class="btn-small ${ad.is_active ? "btn-danger" : "btn-success"}" onclick="toggleAd('${ad.id}', ${!ad.is_active})">${ad.is_active ? "Pause" : "Activate"}</button>
+          <button class="btn-small btn-danger" onclick="deleteAd('${ad.id}')">Delete</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+const uploadAd = safeRender(async function () {
+  const message = document.getElementById("ad-message").value.trim();
+  const linkUrl = document.getElementById("ad-link").value.trim();
+  const errEl = document.getElementById("ad-error");
+  errEl.innerHTML = "";
+  if (!message) { errEl.innerHTML = `<div class="error-banner">Enter a banner message.</div>`; return; }
+  const { error } = await sb.from("ads").insert({ message, link_url: linkUrl || null, placement: "directory_top" });
+  if (error) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`; return; }
+  await loadAll();
+});
+
+const toggleAd = safeRender(async function (adId, makeActive) {
+  await sb.from("ads").update({ is_active: makeActive }).eq("id", adId);
+  await loadAll();
+});
+
+const deleteAd = safeRender(async function (adId) {
+  await sb.from("ads").delete().eq("id", adId);
+  await loadAll();
+});
+</script>
+</body>
+</html>
