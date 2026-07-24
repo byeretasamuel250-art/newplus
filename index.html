@@ -1,0 +1,1675 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<title>new+</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"><div class="center-loading"><div class="spinner"></div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+let sb;
+let state = {
+  profile: null, people: [], conversation: null, otherPerson: null,
+  messages: [], messagesChannel: null, profileChannel: null, refreshTimer: null,
+  unreadCount: 0, globalMessagesChannel: null, replyingTo: null, directoryChannel: null,
+  adChannel: null, statusesChannel: null, chatListData: null
+};
+const root = () => document.getElementById("app");
+
+// Locks #app (and the page behind it) to the viewport height for screens that
+// need a fixed header/footer with only one inner region scrolling. Pass null
+// to return to normal document flow.
+function setAppMode(mode) {
+  const el = root();
+  el.classList.remove("chat-mode", "directory-mode");
+  if (mode) el.classList.add(mode);
+  document.body.classList.toggle("chat-open", !!mode);
+  document.documentElement.classList.toggle("chat-open", !!mode);
+  syncViewportHeight();
+}
+
+// On-screen keyboards shrink the *visual* viewport without always shrinking
+// the *layout* viewport the same way across browsers, which is what dvh
+// tracks — so a fixed-height screen can end up with its bottom bar hidden
+// behind the keyboard, or the whole screen sitting a bit too high/low while
+// the keyboard is animating in. Track the real visible height AND its
+// vertical offset directly, and keep resyncing for a short burst after any
+// input gets focus/blur, since keyboards on some devices report their
+// final size a little late.
+function syncViewportHeight() {
+  const el = root();
+  if (!el) return;
+  const locked = el.classList.contains("chat-mode") || el.classList.contains("directory-mode");
+  if (locked && window.visualViewport) {
+    el.style.height = window.visualViewport.height + "px";
+    el.style.top = window.visualViewport.offsetTop + "px";
+    // iOS/Android sometimes scroll the underlying page when a field gets
+    // focus, even though the layout is position:fixed — pull it back so
+    // our fixed-position math above stays valid.
+    if (window.scrollY !== 0) window.scrollTo(0, 0);
+  } else {
+    el.style.height = "";
+    el.style.top = "";
+  }
+  if (el.classList.contains("chat-mode")) {
+    const scrollEl = document.getElementById("chat-scroll");
+    if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+  }
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", syncViewportHeight);
+  window.visualViewport.addEventListener("scroll", syncViewportHeight);
+}
+// A burst of resyncs after any text input gains or loses focus — covers
+// keyboards that report their size/position a bit late, or in a couple of
+// steps, instead of relying on a single fixed delay.
+document.addEventListener("focusin", (e) => {
+  if (!["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+  [0, 60, 150, 300, 500, 800].forEach(ms => setTimeout(syncViewportHeight, ms));
+});
+document.addEventListener("focusout", (e) => {
+  if (!["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+  [0, 60, 150, 300, 500].forEach(ms => setTimeout(syncViewportHeight, ms));
+});
+const DISTRICTS = ["Kampala","Wakiso","Mukono","Entebbe","Jinja","Mbale","Mbarara","Gulu","Lira",
+  "Arua","Fort Portal","Masaka","Soroti","Hoima","Kabale","Iganga","Kasese","Mityana","Tororo","Other"];
+
+const BRAND_HTML = `<div class="brand">newplus</div>`;
+
+// Set to true once you're ready to require payment before people can browse
+// and chat. While false, everyone gets full access for free — the
+// subscription screens, admin approval flow, and database fields are all
+// still there, just not enforced.
+const SUBSCRIPTION_REQUIRED = false;
+
+window.addEventListener("DOMContentLoaded", () => {
+  try { sb = initSupabase(); } catch (e) { return; }
+  boot();
+});
+
+const boot = safeRender(async function () {
+  const session = await ensureSession(sb);
+  const { data, error } = await sb.from("profiles").select("*").eq("auth_uid", session.user.id).maybeSingle();
+  if (error) throw error;
+  if (!data) return renderWelcome();
+  state.profile = data;
+  routeFromProfile();
+  if (!state.refreshTimer) state.refreshTimer = setInterval(refreshProfile, 15000);
+  startProfileRealtime();
+  startGlobalMessageRealtime();
+  startPresenceHeartbeat();
+  refreshUnreadCount();
+});
+
+function routeFromProfile() {
+  const p = state.profile;
+  if (!p.is_active) return renderDeactivated();
+  if (!p.profile_complete) return renderCompleteProfile();
+  return renderDirectory();
+}
+
+function applyProfileUpdate(newProfile) {
+  if (!newProfile || !state.profile) return;
+  const wasActive = state.profile.subscription_status === "active";
+  const nowActive = newProfile.subscription_status === "active";
+  const wasEnabled = state.profile.is_active;
+  state.profile = newProfile;
+  if (!newProfile.is_active) return renderDeactivated();
+  if ((!wasActive && nowActive) || !wasEnabled) routeFromProfile();
+}
+
+// ---------- PRESENCE (online / last seen) ----------
+let presenceInterval = null;
+async function touchLastSeen() {
+  if (!state.profile || document.visibilityState !== "visible") return;
+  const now = new Date().toISOString();
+  const { error } = await sb.from("profiles").update({ last_seen_at: now }).eq("id", state.profile.id);
+  if (!error) state.profile.last_seen_at = now;
+}
+function startPresenceHeartbeat() {
+  if (presenceInterval) return;
+  touchLastSeen();
+  presenceInterval = setInterval(touchLastSeen, 90000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") touchLastSeen(); });
+}
+function isOnline(lastSeenAt) {
+  return !!lastSeenAt && (Date.now() - new Date(lastSeenAt).getTime()) < 120000;
+}
+
+async function refreshProfile() {
+  if (!state.profile) return;
+  const { data } = await sb.from("profiles").select("*").eq("id", state.profile.id).maybeSingle();
+  if (data) applyProfileUpdate(data);
+}
+
+let profileChannel = null;
+function startProfileRealtime() {
+  if (profileChannel || !state.profile) return;
+  profileChannel = sb.channel("user-profile-" + state.profile.id)
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: "id=eq." + state.profile.id },
+      (payload) => applyProfileUpdate(payload.new))
+    .subscribe();
+}
+
+// ---------- NOTIFICATIONS (sound + tab flash for new messages while elsewhere in the app) ----------
+function startGlobalMessageRealtime() {
+  if (state.globalMessagesChannel || !state.profile) return;
+  state.globalMessagesChannel = sb.channel("global-messages-" + state.profile.id)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, async (payload) => {
+      const msg = payload.new;
+      if (msg.sender_id === state.profile.id) return; // my own message
+      const viewingThisChat = state.conversation && msg.conversation_id === state.conversation.id;
+      if (viewingThisChat) {
+        // already visible in the open chat — just keep read markers current
+        sb.rpc("mark_conversation_read", { p_conversation_id: state.conversation.id }).catch(() => {});
+      } else {
+        playMessageAlertSound();
+        flashTabTitle();
+        const senderName = await lookupSenderName(msg.sender_id);
+        showNewMessageToast(senderName, msg.sender_id);
+      }
+      refreshUnreadCount();
+      if (state.viewingChatList) renderChatList();
+    })
+    .subscribe();
+}
+
+async function lookupSenderName(senderId) {
+  const known = state.people.find(p => p.id === senderId) || state.chatListData?.peopleById?.[senderId];
+  if (known?.name) return known.name;
+  const { data } = await sb.from("profiles").select("name").eq("id", senderId).maybeSingle();
+  return data?.name || "Someone";
+}
+
+// A small pill on the Chats button naming who just messaged you — falls
+// back to a fixed toast if the button isn't on screen right now.
+function showNewMessageToast(name, senderId) {
+  const btn = document.getElementById("chats-btn");
+  const toast = document.createElement("div");
+  toast.className = "chat-toast" + (btn ? "" : " chat-toast-fixed");
+  toast.innerHTML = `New message from <strong>${escapeHtml(name)}</strong>`;
+  toast.onclick = (e) => { e.stopPropagation(); toast.remove(); openChatWith(senderId); };
+  (btn || document.body).appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 250);
+  }, 4000);
+}
+
+function playMessageAlertSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 1046.5;
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.32);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.34);
+  } catch (e) { console.warn("Couldn't play alert sound:", e); }
+}
+
+const originalTitle = document.title;
+let titleFlashInterval = null;
+function flashTabTitle() {
+  if (titleFlashInterval) return;
+  let toggle = false;
+  titleFlashInterval = setInterval(() => {
+    document.title = toggle ? originalTitle : "💬 New message";
+    toggle = !toggle;
+  }, 1000);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && titleFlashInterval) {
+    clearInterval(titleFlashInterval);
+    titleFlashInterval = null;
+    document.title = originalTitle;
+  }
+});
+
+async function refreshUnreadCount() {
+  if (!state.profile) return;
+  const me = state.profile.id;
+  const { data, error } = await sb.from("conversations").select("*").or(`user_a.eq.${me},user_b.eq.${me}`);
+  if (error || !data) return;
+  state.unreadCount = data.filter(c => {
+    const myLastRead = c.user_a === me ? c.last_read_a : c.last_read_b;
+    return new Date(c.last_message_at) > new Date(myLastRead);
+  }).length;
+  updateChatsBadge();
+}
+
+function updateChatsBadge() {
+  const badge = document.getElementById("chats-badge");
+  if (!badge) return;
+  if (state.unreadCount > 0) { badge.textContent = state.unreadCount; badge.style.display = "inline-flex"; }
+  else { badge.style.display = "none"; }
+}
+
+async function logout() {
+  setAppMode(null);
+  clearInterval(state.refreshTimer);
+  clearInterval(presenceInterval); presenceInterval = null;
+  leaveChatChannel();
+  if (profileChannel) { await sb.removeChannel(profileChannel); profileChannel = null; }
+  if (state.globalMessagesChannel) { await sb.removeChannel(state.globalMessagesChannel); }
+  if (state.directoryChannel) { await sb.removeChannel(state.directoryChannel); }
+  if (state.adChannel) { await sb.removeChannel(state.adChannel); }
+  if (state.statusesChannel) { await sb.removeChannel(state.statusesChannel); }
+  if (titleFlashInterval) { clearInterval(titleFlashInterval); titleFlashInterval = null; document.title = originalTitle; }
+  await sb.auth.signOut();
+  state = {
+    profile: null, people: [], conversation: null, otherPerson: null, messages: [], messagesChannel: null,
+    profileChannel: null, refreshTimer: null, unreadCount: 0, globalMessagesChannel: null, replyingTo: null,
+    directoryChannel: null, adChannel: null, statusesChannel: null
+  };
+  await ensureSession(sb);
+  renderWelcome();
+}
+
+// ---------- WELCOME ----------
+function renderWelcome() {
+  setAppMode(null);
+  root().innerHTML = `
+    ${BRAND_HTML}
+    <p class="tagline tagline-hero">Leave <strong>past</strong>, grab a <strong>new match</strong>.</p>
+    <div class="card">
+      <h3>New here?</h3>
+      <button class="btn-primary" style="margin-top:10px" onclick="renderRegister()">Create an account</button>
+    </div>
+    <div class="card">
+      <h3>Already have an account?</h3>
+      <button class="btn-secondary" style="margin-top:10px" onclick="renderLogin()">Log in</button>
+    </div>
+  `;
+}
+
+function renderDeactivated() {
+  setAppMode(null);
+  root().innerHTML = `
+    ${BRAND_HTML}
+    <div class="error-banner">Your account has been deactivated. Contact support if you think this is a mistake.</div>
+    <button class="btn-secondary" onclick="logout()">Log out</button>
+  `;
+}
+
+// ---------- REGISTER ----------
+function renderRegister() {
+  setAppMode(null);
+  root().innerHTML = `
+    <div class="register-shine">
+      <div class="register-glow"></div>
+      ${BRAND_HTML}
+      <h2>Create your account</h2>
+      <p>Just the basics for now — you'll add your name and photo next.</p>
+      <div id="reg-error"></div>
+      <label for="r-phone">Phone number</label>
+      <input id="r-phone" type="tel" placeholder="07XXXXXXXX">
+      <label for="r-pin">Choose a 4-digit PIN</label>
+      <input id="r-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
+      <label for="r-dob-day">Date of birth</label>
+      <div style="display:flex;gap:8px">
+        <select id="r-dob-day" style="flex:1"></select>
+        <select id="r-dob-month" style="flex:1.4"></select>
+        <select id="r-dob-year" style="flex:1.2"></select>
+      </div>
+      <label for="r-district">District / town</label>
+      <select id="r-district">${DISTRICTS.map(d => `<option value="${d}">${d}</option>`).join("")}</select>
+      <button class="btn-primary btn-shine" onclick="doRegister()">Continue</button>
+      <button class="btn-link" onclick="renderWelcome()">← Back</button>
+    </div>
+  `;
+  populateDobSelects();
+}
+
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function populateDobSelects(prefix = "r", presetDob = null) {
+  const daySel = document.getElementById(`${prefix}-dob-day`);
+  const monthSel = document.getElementById(`${prefix}-dob-month`);
+  const yearSel = document.getElementById(`${prefix}-dob-year`);
+  const preset = presetDob ? new Date(presetDob) : null;
+  const presetDay = preset ? preset.getUTCDate() : "";
+  const presetMonth = preset ? preset.getUTCMonth() + 1 : "";
+  const presetYear = preset ? preset.getUTCFullYear() : "";
+  daySel.innerHTML = `<option value="">Day</option>` + Array.from({ length: 31 }, (_, i) => i + 1)
+    .map(d => `<option value="${d}" ${d === presetDay ? "selected" : ""}>${d}</option>`).join("");
+  monthSel.innerHTML = `<option value="">Month</option>` + MONTHS
+    .map((m, i) => `<option value="${i + 1}" ${i + 1 === presetMonth ? "selected" : ""}>${m}</option>`).join("");
+  const thisYear = new Date().getFullYear();
+  yearSel.innerHTML = `<option value="">Year</option>` + Array.from({ length: 83 }, (_, i) => thisYear - 16 - i)
+    .map(y => `<option value="${y}" ${y === presetYear ? "selected" : ""}>${y}</option>`).join("");
+}
+
+function readDobValue(prefix = "r") {
+  const day = document.getElementById(`${prefix}-dob-day`).value;
+  const month = document.getElementById(`${prefix}-dob-month`).value;
+  const year = document.getElementById(`${prefix}-dob-year`).value;
+  if (!day || !month || !year) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+const doRegister = safeRender(async function () {
+  const phone = document.getElementById("r-phone").value.trim();
+  const pin = document.getElementById("r-pin").value.trim();
+  const dob = readDobValue();
+  const district = document.getElementById("r-district").value;
+  const errEl = document.getElementById("reg-error");
+  errEl.innerHTML = "";
+  if (!phone || !/^\d{9,13}$/.test(phone.replace(/\s/g, ""))) { errEl.innerHTML = `<div class="error-banner">Enter a valid phone number.</div>`; return; }
+  if (!/^\d{4}$/.test(pin)) { errEl.innerHTML = `<div class="error-banner">PIN must be exactly 4 digits.</div>`; return; }
+  if (!dob) { errEl.innerHTML = `<div class="error-banner">Enter your date of birth.</div>`; return; }
+  const age = ageFromDob(dob);
+  if (age < 18) { errEl.innerHTML = `<div class="error-banner">You must be 18 or older to use new+.</div>`; return; }
+
+  await ensureSession(sb);
+  const { data, error } = await sb.rpc("register_with_pin", { p_phone: phone, p_pin: pin, p_dob: dob, p_district: district });
+  if (error) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  state.profile = data;
+  if (!state.refreshTimer) state.refreshTimer = setInterval(refreshProfile, 15000);
+  startProfileRealtime();
+  routeFromProfile();
+});
+
+// ---------- LOGIN ----------
+function renderLogin() {
+  setAppMode(null);
+  root().innerHTML = `
+    <div class="login-shine">
+      <div class="login-glow"></div>
+      ${BRAND_HTML}
+      <h2>Welcome back</h2>
+      <div id="login-error"></div>
+      <label for="l-phone">Phone number</label>
+      <input id="l-phone" type="tel" placeholder="07XXXXXXXX">
+      <label for="l-pin">PIN</label>
+      <input id="l-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
+      <button class="btn-primary btn-shine" onclick="doLogin()">Log in</button>
+      <button class="btn-link" onclick="renderWelcome()">← Back</button>
+    </div>
+  `;
+}
+
+const doLogin = safeRender(async function () {
+  const phone = document.getElementById("l-phone").value.trim();
+  const pin = document.getElementById("l-pin").value.trim();
+  const errEl = document.getElementById("login-error");
+  errEl.innerHTML = "";
+  await ensureSession(sb);
+  const { data, error } = await sb.rpc("login_with_pin", { p_phone: phone, p_pin: pin });
+  if (error) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  if (!data.ok) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(friendlyError({ message: data.error }))}</div>`; return; }
+  state.profile = data.profile;
+  if (!state.refreshTimer) state.refreshTimer = setInterval(refreshProfile, 15000);
+  startProfileRealtime();
+  routeFromProfile();
+});
+
+// ---------- COMPLETE PROFILE ----------
+let pickedAvatarFile = null;
+let pickedCoords = null;
+
+function renderCompleteProfile() {
+  setAppMode(null);
+  root().innerHTML = `
+    ${BRAND_HTML}
+    <h2>Finish your profile</h2>
+    <p>This is what people will see before they message you.</p>
+    <div id="cp-error"></div>
+    <div class="avatar-upload">
+      <div class="avatar lg" id="avatar-preview">📷</div>
+      <label for="cp-avatar" class="btn-link" style="cursor:pointer">Choose a photo</label>
+      <input id="cp-avatar" type="file" accept="image/*" style="display:none" onchange="onAvatarPicked(event)">
+    </div>
+    <label for="cp-name">Your name</label>
+    <input id="cp-name" type="text" placeholder="What should people call you?">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:18px">
+      <input type="checkbox" id="cp-share-location" style="width:auto" onchange="onShareLocationToggle(event)">
+      <span style="color:var(--cream);font-size:14px">Share my location — helps show people nearby (you choose this, and it's just an approximate distance, never your exact spot)</span>
+    </label>
+    <div id="location-status" class="hint" style="margin-top:6px"></div>
+    <button class="btn-primary" onclick="saveProfile()">Finish</button>
+  `;
+}
+
+function onAvatarPicked(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  pickedAvatarFile = file;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById("avatar-preview").innerHTML = `<img src="${reader.result}">`;
+  };
+  reader.readAsDataURL(file);
+}
+
+function onShareLocationToggle(e) {
+  const statusEl = document.getElementById("location-status");
+  if (!e.target.checked) { pickedCoords = null; statusEl.textContent = ""; return; }
+  statusEl.textContent = "Getting your location…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { pickedCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude }; statusEl.textContent = "Location ready."; },
+    () => { statusEl.textContent = "Couldn't get your location — you can still use new+ without it."; e.target.checked = false; }
+  );
+}
+
+const saveProfile = safeRender(async function () {
+  const name = document.getElementById("cp-name").value.trim();
+  const shareLocation = document.getElementById("cp-share-location").checked;
+  const errEl = document.getElementById("cp-error");
+  errEl.innerHTML = "";
+  if (!name) { errEl.innerHTML = `<div class="error-banner">Enter your name.</div>`; return; }
+
+  let avatarPath = null;
+  if (pickedAvatarFile) {
+    const blob = await compressImage(pickedAvatarFile, 800, 0.85);
+    avatarPath = `${state.profile.id}/${Date.now()}.jpg`;
+    const { error: upErr } = await sb.storage.from("avatars").upload(avatarPath, blob, { contentType: "image/jpeg", upsert: true });
+    if (upErr) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(upErr.message)}</div>`; return; }
+  }
+
+  const { data, error } = await sb.rpc("complete_profile", {
+    p_name: name, p_avatar_path: avatarPath,
+    p_lat: pickedCoords?.lat ?? null, p_lng: pickedCoords?.lng ?? null,
+    p_share_location: shareLocation
+  });
+  if (error) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  state.profile = data;
+  routeFromProfile();
+});
+
+function avatarUrl(path) {
+  if (!path) return null;
+  return sb.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+}
+
+// ---------- SUBSCRIBE ----------
+function renderSubscribe() {
+  setAppMode(null);
+  const p = state.profile;
+  const isPending = p.subscription_status === "pending";
+  const pendingNote = isPending
+    ? `<div class="error-banner" style="background:var(--amber-dim);border-color:var(--amber);color:var(--amber)">Payment submitted — waiting for confirmation. This updates automatically once it's approved.</div>` : "";
+  const confirmCard = isPending ? "" : `
+      <div class="card">
+        <h3>2. Confirm your payment</h3>
+        <label for="s-network">Network used</label>
+        <select id="s-network"><option value="MTN">MTN Mobile Money</option><option value="Airtel">Airtel Money</option></select>
+        <label for="s-ref">Transaction message / reference (optional)</label>
+        <input id="s-ref" type="text" placeholder="Paste the confirmation SMS text or ID">
+        <div id="sub-error"></div>
+        <button class="btn-primary" id="pay-btn" onclick="submitSubscription()">I've paid</button>
+      </div>`;
+  root().innerHTML = `
+    <div class="top-bar">${BRAND_HTML}<button class="icon-btn" onclick="routeFromProfile()">← Back</button></div>
+    <h2>Unlock new+</h2>
+    <p>UGX 3,000 / month to browse people nearby and start chatting.</p>
+    ${pendingNote}
+    <div class="card">
+      <h3>1. Send mobile money</h3>
+      <p style="margin-bottom:8px">Send <strong style="color:var(--cream)">UGX 3,000</strong> to:</p>
+      <p style="color:var(--cream);font-family:var(--font-mono);font-size:15px;margin-bottom:2px">MTN: 0779 477 048</p>
+      <p style="color:var(--cream);font-family:var(--font-mono);font-size:15px">Airtel: 0748 237 633</p>
+      <p style="font-size:12.5px;margin-top:10px">(Account name: Samuel)</p>
+    </div>
+    <div class="dot-divider">then</div>
+    ${confirmCard}
+  `;
+}
+
+const submitSubscription = safeRender(async function () {
+  const btn = document.getElementById("pay-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Submitting…"; }
+  const network = document.getElementById("s-network").value;
+  const ref = document.getElementById("s-ref").value.trim();
+  const { error } = await sb.from("subscription_requests").insert({ profile_id: state.profile.id, network, transaction_ref: ref || null });
+  if (error) {
+    if (error.code === "23505") {
+      const { data } = await sb.from("profiles").select("*").eq("id", state.profile.id).maybeSingle();
+      if (data) state.profile = data;
+      renderSubscribe();
+      return;
+    }
+    document.getElementById("sub-error").innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`;
+    if (btn) { btn.disabled = false; btn.textContent = "I've paid"; }
+    return;
+  }
+  const { data } = await sb.from("profiles").update({ subscription_status: "pending" }).eq("id", state.profile.id).select().maybeSingle();
+  if (data) state.profile = data;
+  renderSubscribe();
+});
+
+// ---------- DIRECTORY ----------
+async function renderDirectory() {
+  setAppMode("directory-mode");
+  state.viewingChatList = false;
+  const p = state.profile;
+  const subscribed = !SUBSCRIPTION_REQUIRED || (p.subscription_status === "active" && (!p.subscription_expires_at || new Date(p.subscription_expires_at) > new Date()));
+  root().innerHTML = `
+    <div class="directory-static">
+      <div class="top-bar top-bar-hero">
+        ${BRAND_HTML}
+        <div class="top-bar-actions">
+          <button id="chats-btn" class="icon-btn btn-accent" onclick="renderChatList()" style="position:relative">Chats<span id="chats-badge" class="unread-badge" style="display:none"></span></button>
+          <button class="icon-btn btn-accent" onclick="renderProfile()">Profile</button>
+          <button class="icon-btn btn-on-hero" onclick="logout()">Log out</button>
+        </div>
+      </div>
+      <h2>Hi ${escapeHtml(p.name || "")} 👋</h2>
+      ${!subscribed ? `<div class="card"><h3>Unlock new+</h3><p style="margin-bottom:10px">Subscribe for UGX 3,000/month to browse people nearby and start chatting.</p><button class="btn-primary" style="margin-top:0" onclick="renderSubscribe()">Subscribe</button></div>` : ""}
+      <div id="ad-slot"></div>
+      <div id="status-slot"></div>
+    </div>
+    <div class="directory-scroll" id="directory-scroll">
+      ${subscribed ? `<div class="section-eyebrow">People nearby</div>` : ""}
+      <div id="people-list">${subscribed ? `<div class="center-loading"><div class="spinner"></div></div>` : `<div class="empty-state">Subscribe to see who's around 👆</div>`}</div>
+    </div>
+  `;
+  updateChatsBadge();
+  loadAdBanner();
+  startAdRealtime();
+  if (!subscribed) return;
+  loadStatusesRow();
+  startStatusesRealtime();
+  await loadDirectoryPeople();
+  startDirectoryRealtime();
+}
+
+async function loadDirectoryPeople() {
+  const listEl = document.getElementById("people-list");
+  if (!listEl) return;
+  // get_directory() computes distance server-side and only ever returns a
+  // coarse label like "3–5 km away" — raw coordinates never leave the
+  // database, for anyone's profile including your own.
+  const { data, error } = await sb.rpc("get_directory");
+  if (error) { listEl.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`; return; }
+  if (!data.length) { listEl.innerHTML = `<div class="empty-state">No one else has joined yet — check back soon!</div>`; return; }
+  state.people = data;
+
+  listEl.innerHTML = data.map(person => {
+    const url = avatarUrl(person.avatar_path);
+    const age = ageFromDob(person.dob);
+    const distanceLabel = person.distance_label || person.district;
+    return `
+      <div class="person-row" onclick="openChatWith('${person.id}')">
+        <div class="avatar">${url ? `<img src="${url}">` : initials(person.name)}${isOnline(person.last_seen_at) ? `<span class="online-dot" title="Online"></span>` : ""}</div>
+        <div class="person-info">
+          <div class="person-name">${escapeHtml(person.name)}${age ? `, ${age}yrs` : ""}</div>
+          <div class="person-meta"><span>📍 ${escapeHtml(distanceLabel || "")}</span></div>
+        </div>
+        <span class="person-chevron">›</span>
+      </div>`;
+  }).join("");
+}
+
+// ---------- LIVE DIRECTORY (new/changed profiles show up without a refresh) ----------
+let directoryReloadTimer = null;
+function startDirectoryRealtime() {
+  if (state.directoryChannel || !state.profile) return;
+  state.directoryChannel = sb.channel("directory-" + state.profile.id)
+    .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, (payload) => {
+      const changedId = (payload.new && payload.new.id) || (payload.old && payload.old.id);
+      if (changedId === state.profile.id) return; // my own profile is handled by startProfileRealtime
+      clearTimeout(directoryReloadTimer);
+      directoryReloadTimer = setTimeout(() => {
+        if (document.getElementById("people-list")) loadDirectoryPeople();
+      }, 1500);
+    })
+    .subscribe();
+}
+
+// ---------- LIVE ADS (a new/paused/deleted banner shows up instantly, no refresh needed) ----------
+function startAdRealtime() {
+  if (state.adChannel || !state.profile) return;
+  state.adChannel = sb.channel("ads-" + state.profile.id)
+    .on("postgres_changes", { event: "*", schema: "public", table: "ads" }, () => {
+      if (document.getElementById("ad-slot")) loadAdBanner();
+    })
+    .subscribe();
+}
+
+// ---------- LIVE STATUSES (someone else's new/deleted status shows up instantly) ----------
+let lastLocalStatusesUpdate = 0;
+function startStatusesRealtime() {
+  if (state.statusesChannel || !state.profile) return;
+  state.statusesChannel = sb.channel("statuses-" + state.profile.id)
+    .on("postgres_changes", { event: "*", schema: "public", table: "statuses" }, () => {
+      if (Date.now() - lastLocalStatusesUpdate < 1200) return; // already reloaded locally for this change
+      if (document.getElementById("status-slot")) loadStatusesRow();
+    })
+    .subscribe();
+}
+
+async function loadAdBanner() {
+  const slot = document.getElementById("ad-slot");
+  if (!slot) return;
+  const { data, error } = await sb.from("ads").select("*").eq("placement", "directory_top").eq("is_active", true);
+  if (error || !data || !data.length) { slot.innerHTML = ""; return; }
+  const ad = data[Math.floor(Math.random() * data.length)];
+  const inner = escapeHtml(ad.message || "");
+  slot.innerHTML = ad.link_url
+    ? `<a class="card ad-banner" href="${escapeHtml(ad.link_url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`
+    : `<div class="card ad-banner">${inner}</div>`;
+}
+
+// ---------- STATUSES (text/photo updates that auto-expire after 24h) ----------
+async function loadStatusesRow() {
+  const slot = document.getElementById("status-slot");
+  if (!slot) return;
+  const me = state.profile.id;
+  const { data: rows, error } = await sb.from("statuses").select("*")
+    .gt("expires_at", new Date().toISOString()).order("created_at", { ascending: true });
+  if (error) { slot.innerHTML = ""; return; }
+
+  const byProfile = {};
+  (rows || []).forEach(s => { (byProfile[s.profile_id] ||= []).push(s); });
+  state.myStatuses = byProfile[me] || [];
+  delete byProfile[me];
+  state.statusesByProfile = byProfile;
+
+  const otherIds = Object.keys(byProfile);
+  let peopleById = {};
+  if (otherIds.length) {
+    const { data: people } = await sb.from("profiles").select("id,name,avatar_path").in("id", otherIds);
+    peopleById = Object.fromEntries((people || []).map(p => [p.id, p]));
+  }
+
+  const myUrl = avatarUrl(state.profile.avatar_path);
+  const otherItems = otherIds.map(id => {
+    const person = peopleById[id];
+    const url = person ? avatarUrl(person.avatar_path) : null;
+    const firstName = (person?.name || "").split(" ")[0] || "Someone";
+    return `
+      <div class="status-item" onclick="viewStatuses('${id}')">
+        <div class="status-ring"><div class="avatar">${url ? `<img src="${url}">` : initials(person?.name)}</div></div>
+        <div class="status-name">${escapeHtml(firstName)}</div>
+      </div>`;
+  }).join("");
+
+  slot.innerHTML = `
+    <div class="status-row">
+      <div class="status-item">
+        <div class="status-ring ${state.myStatuses.length ? "" : "status-ring-empty"}" onclick="${state.myStatuses.length ? `viewStatuses('${me}')` : "openAddStatus()"}">
+          <div class="avatar">${myUrl ? `<img src="${myUrl}">` : initials(state.profile.name)}</div>
+        </div>
+        <button class="status-add-btn" onclick="event.stopPropagation();openAddStatus()" title="Add status">+</button>
+        <div class="status-name">My status</div>
+      </div>
+      ${otherItems}
+    </div>`;
+}
+
+let pickedStatusImageBlob = null;
+
+function openAddStatus() {
+  closeActionSheet();
+  pickedStatusImageBlob = null;
+  const overlay = document.createElement("div");
+  overlay.className = "gif-picker";
+  overlay.id = "status-add-overlay";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="gif-picker-sheet" style="max-height:none">
+      <h3 style="margin-bottom:10px">Add to your status</h3>
+      <div id="status-preview"></div>
+      <textarea id="status-text" rows="3" maxlength="180" placeholder="Say something… (optional if adding a photo)"></textarea>
+      <div id="status-error"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn-secondary" style="flex:1" onclick="document.getElementById('status-image-input').click()">📷 Add photo</button>
+        <button class="btn-primary" style="flex:1;margin-top:0" onclick="postStatus()">Post</button>
+      </div>
+      <input id="status-image-input" type="file" accept="image/*" style="display:none" onchange="onStatusImagePicked(event)">
+      <button class="btn-link" style="width:100%;text-align:center;margin-top:6px" onclick="closeActionSheet()">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+const onStatusImagePicked = safeRender(async function (e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  pickedStatusImageBlob = await compressImage(file, 820, 0.62);
+  const previewEl = document.getElementById("status-preview");
+  if (!previewEl) return;
+  const reader = new FileReader();
+  reader.onload = () => { previewEl.innerHTML = `<img src="${reader.result}" style="width:100%;border-radius:12px;margin-bottom:12px;display:block">`; };
+  reader.readAsDataURL(pickedStatusImageBlob);
+});
+
+const postStatus = safeRender(async function () {
+  const textEl = document.getElementById("status-text");
+  const text = textEl ? textEl.value.trim() : "";
+  const errEl = document.getElementById("status-error");
+  if (errEl) errEl.innerHTML = "";
+  if (!text && !pickedStatusImageBlob) {
+    if (errEl) errEl.innerHTML = `<div class="error-banner">Add some text or a photo.</div>`;
+    return;
+  }
+  const imageBlob = pickedStatusImageBlob;
+  pickedStatusImageBlob = null;
+  closeActionSheet();
+
+  let imagePath = null;
+  if (imageBlob) {
+    imagePath = `${state.profile.id}/${Date.now()}.jpg`;
+    const { error: upErr } = await sb.storage.from("statuses").upload(imagePath, imageBlob, { contentType: "image/jpeg" });
+    if (upErr) { alert(friendlyError(upErr)); return; }
+  }
+  const { error } = await sb.from("statuses").insert({ profile_id: state.profile.id, text_content: text || null, image_path: imagePath });
+  if (error) { alert(friendlyError(error)); return; }
+  lastLocalStatusesUpdate = Date.now();
+  loadStatusesRow();
+});
+
+const statusImageUrlCache = new Map();
+async function statusImageUrl(path) {
+  if (!path) return null;
+  if (statusImageUrlCache.has(path)) return statusImageUrlCache.get(path);
+  const { data, error } = await sb.storage.from("statuses").createSignedUrl(path, 3600);
+  if (error) { console.error(error); return null; }
+  statusImageUrlCache.set(path, data.signedUrl);
+  return data.signedUrl;
+}
+
+function viewStatuses(profileId) {
+  const mine = profileId === state.profile.id;
+  const list = mine ? state.myStatuses : (state.statusesByProfile[profileId] || []);
+  if (!list || !list.length) return;
+  state.statusViewer = { list, idx: 0, mine };
+  let overlay = document.getElementById("status-viewer-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "status-viewer";
+    overlay.id = "status-viewer-overlay";
+    document.body.appendChild(overlay);
+  }
+  renderStatusFrame();
+}
+
+function renderStatusFrame() {
+  const sv = state.statusViewer;
+  const overlay = document.getElementById("status-viewer-overlay");
+  if (!sv || !overlay) return;
+  const s = sv.list[sv.idx];
+  overlay.innerHTML = `
+    <div class="status-viewer-bars">
+      ${sv.list.map((_, i) => `<div class="status-bar ${i < sv.idx ? "seen" : ""} ${i === sv.idx ? "active" : ""}"></div>`).join("")}
+    </div>
+    <div class="status-viewer-top">
+      <span>${timeAgo(s.created_at)}</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        ${sv.mine ? `<button class="icon-btn" onclick="deleteStatus('${s.id}', ${s.image_path ? `'${s.image_path}'` : "null"})" title="Delete">🗑</button>` : ""}
+        <button class="icon-btn" onclick="closeStatusViewer()" title="Close">✕</button>
+      </div>
+    </div>
+    <div class="status-viewer-body" id="status-viewer-body">
+      <div id="status-viewer-media">
+        ${s.image_path ? `<div class="center-loading"><div class="spinner"></div></div>` : `<div class="status-text-only">${escapeHtml(s.text_content || "")}</div>`}
+      </div>
+      <div class="status-viewer-nav">
+        <div class="status-nav-zone" onclick="statusPrev()"></div>
+        <div class="status-nav-zone" onclick="statusNext()"></div>
+      </div>
+    </div>
+    ${s.image_path && s.text_content ? `<div class="status-viewer-caption">${escapeHtml(s.text_content)}</div>` : ""}
+    <div class="status-comments-panel">
+      ${sv.mine ? `<div class="status-comments-list" id="status-comments-list"><div class="empty-state">Loading comments…</div></div>` : ""}
+      <div class="status-comment-composer">
+        <input id="status-comment-input" type="text" maxlength="300" placeholder="Add a comment…"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();postStatusComment('${s.id}');}">
+        <button class="icon-btn" onclick="postStatusComment('${s.id}')" title="Send">➤</button>
+      </div>
+    </div>
+  `;
+  if (s.image_path) {
+    statusImageUrl(s.image_path).then(url => {
+      const mediaEl = document.getElementById("status-viewer-media");
+      if (!mediaEl) return;
+      mediaEl.innerHTML = url ? `<img src="${url}">` : `<div class="error-banner">Couldn't load photo.</div>`;
+    });
+  }
+  const next = sv.list[sv.idx + 1];
+  if (next && next.image_path) {
+    statusImageUrl(next.image_path).then(url => { if (url) new Image().src = url; });
+  }
+  if (sv.mine) loadStatusComments(s.id);
+}
+
+async function loadStatusComments(statusId) {
+  const listEl = document.getElementById("status-comments-list");
+  if (!listEl) return;
+  const { data, error } = await sb.from("status_comments")
+    .select("id, comment_text, created_at, profile_id, profiles:profile_id(name, avatar_path)")
+    .eq("status_id", statusId)
+    .order("created_at", { ascending: true });
+  // the viewer may have moved to a different status (or closed) while this was in flight
+  const stillHere = document.getElementById("status-comments-list");
+  if (!stillHere || !state.statusViewer || state.statusViewer.list[state.statusViewer.idx]?.id !== statusId) return;
+  if (error) { stillHere.innerHTML = `<div class="empty-state">Couldn't load comments.</div>`; return; }
+  if (!data || !data.length) { stillHere.innerHTML = ""; return; }
+  stillHere.innerHTML = data.map(c => {
+    const url = avatarUrl(c.profiles?.avatar_path);
+    return `
+      <div class="status-comment-row">
+        <div class="avatar sm">${url ? `<img src="${url}">` : initials(c.profiles?.name)}</div>
+        <div class="status-comment-body">
+          <span class="status-comment-name">${escapeHtml(c.profiles?.name || "Someone")}</span>
+          <span class="status-comment-text">${escapeHtml(c.comment_text)}</span>
+          <div class="status-comment-time">${timeAgo(c.created_at)}</div>
+        </div>
+      </div>`;
+  }).join("");
+  stillHere.scrollTop = stillHere.scrollHeight;
+}
+
+const postStatusComment = safeRender(async function (statusId) {
+  const input = document.getElementById("status-comment-input");
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  const { error } = await sb.from("status_comments")
+    .insert({ status_id: statusId, profile_id: state.profile.id, comment_text: text });
+  if (error) { alert(friendlyError(error)); return; }
+  loadStatusComments(statusId);
+});
+
+function statusNext() {
+  const sv = state.statusViewer;
+  if (!sv) return;
+  if (sv.idx < sv.list.length - 1) { sv.idx++; renderStatusFrame(); }
+  else closeStatusViewer();
+}
+function statusPrev() {
+  const sv = state.statusViewer;
+  if (!sv) return;
+  if (sv.idx > 0) { sv.idx--; renderStatusFrame(); }
+}
+function closeStatusViewer() {
+  const overlay = document.getElementById("status-viewer-overlay");
+  if (overlay) overlay.remove();
+  state.statusViewer = null;
+}
+
+const deleteStatus = safeRender(async function (id, imagePath) {
+  if (!confirm("Delete this status?")) return;
+  if (imagePath) await sb.storage.from("statuses").remove([imagePath]);
+  const { error } = await sb.from("statuses").delete().eq("id", id);
+  if (error) { alert(friendlyError(error)); return; }
+  lastLocalStatusesUpdate = Date.now();
+  const sv = state.statusViewer;
+  if (sv) {
+    sv.list = sv.list.filter(s => s.id !== id);
+    if (!sv.list.length) { closeStatusViewer(); }
+    else { if (sv.idx >= sv.list.length) sv.idx = sv.list.length - 1; renderStatusFrame(); }
+  }
+  loadStatusesRow();
+});
+
+// ---------- PROFILE ----------
+function renderProfile() {
+  setAppMode(null);
+  const p = state.profile;
+  const url = avatarUrl(p.avatar_path);
+  root().innerHTML = `
+    <div class="top-bar"><button class="icon-btn" onclick="renderDirectory()">← Back</button><button class="icon-btn" onclick="logout()">Log out</button></div>
+    <h2>My profile</h2>
+    <div class="card profile-hero">
+      <div class="avatar lg" id="profile-avatar-preview">${url ? `<img src="${url}">` : initials(p.name)}</div>
+      <label for="profile-avatar-input" class="btn-link" style="cursor:pointer">Change photo</label>
+      <input id="profile-avatar-input" type="file" accept="image/*" style="display:none" onchange="onProfileAvatarPicked(event)">
+      <div id="profile-avatar-error"></div>
+      <h3>${escapeHtml(p.name || "")}</h3>
+      <p>${escapeHtml(p.district || "")}${p.dob ? ` · ${ageFromDob(p.dob)} yrs` : ""}</p>
+      <button class="btn-link" style="margin-top:4px" onclick="renderEditProfile()">Edit details</button>
+    </div>
+    <div class="card">
+      <p><strong style="color:var(--cream)">Subscription:</strong> <span class="badge badge-${p.subscription_status}">${p.subscription_status}</span>
+      ${p.subscription_expires_at ? ` until ${new Date(p.subscription_expires_at).toLocaleDateString()}` : ""}</p>
+      ${p.subscription_status !== "active" ? `<button class="btn-primary" style="margin-top:6px" onclick="renderSubscribe()">Subscribe</button>` : ""}
+    </div>
+  `;
+}
+
+const onProfileAvatarPicked = safeRender(async function (e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const errEl = document.getElementById("profile-avatar-error");
+  errEl.innerHTML = "";
+  const previewEl = document.getElementById("profile-avatar-preview");
+  const reader = new FileReader();
+  reader.onload = () => { previewEl.innerHTML = `<img src="${reader.result}">`; };
+  reader.readAsDataURL(file);
+
+  const p = state.profile;
+  const blob = await compressImage(file, 800, 0.85);
+  const avatarPath = `${p.id}/${Date.now()}.jpg`;
+  const { error: upErr } = await sb.storage.from("avatars").upload(avatarPath, blob, { contentType: "image/jpeg", upsert: true });
+  if (upErr) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(upErr.message)}</div>`; return; }
+
+  const { data, error } = await sb.rpc("update_avatar", { p_avatar_path: avatarPath });
+  if (error) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  state.profile = data;
+  e.target.value = "";
+});
+
+// ---------- EDIT PROFILE (name, date of birth, district, location) ----------
+const renderEditProfile = safeRender(async function () {
+  setAppMode(null);
+  const p = state.profile;
+  // lat/lng no longer travel with the profile object itself (they live in a
+  // private table only the owner can read) — fetch them specifically here,
+  // the one screen that actually needs to show/reuse them.
+  const { data: myLocRows, error: locErr } = await sb.rpc("get_my_location");
+  const loc = (!locErr && myLocRows && myLocRows[0]) ? myLocRows[0] : null;
+  pickedCoords = (loc?.share_location && loc.lat != null) ? { lat: loc.lat, lng: loc.lng } : null;
+  root().innerHTML = `
+    <div class="top-bar"><button class="icon-btn" onclick="renderProfile()">← Back</button></div>
+    <h2>Edit your details</h2>
+    <div id="ep-error"></div>
+    <label for="ep-name">Your name</label>
+    <input id="ep-name" type="text" value="${escapeHtml(p.name || "")}">
+    <label for="ep-dob-day">Date of birth</label>
+    <div style="display:flex;gap:8px">
+      <select id="ep-dob-day" style="flex:1"></select>
+      <select id="ep-dob-month" style="flex:1.4"></select>
+      <select id="ep-dob-year" style="flex:1.2"></select>
+    </div>
+    <label for="ep-district">District / town</label>
+    <select id="ep-district">${DISTRICTS.map(d => `<option value="${d}" ${d === p.district ? "selected" : ""}>${d}</option>`).join("")}</select>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:18px">
+      <input type="checkbox" id="ep-share-location" style="width:auto" ${p.share_location ? "checked" : ""} onchange="onShareLocationToggle(event)">
+      <span style="color:var(--cream);font-size:14px">Share my location — helps show people nearby (approximate distance only, never your exact spot)</span>
+    </label>
+    <div id="location-status" class="hint" style="margin-top:6px">${pickedCoords ? "Location ready." : ""}</div>
+    <label for="ep-current-pin" style="margin-top:26px">Current PIN (only needed if changing your PIN)</label>
+    <input id="ep-current-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
+    <label for="ep-new-pin">New PIN (leave blank to keep your current PIN)</label>
+    <input id="ep-new-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
+    <button class="btn-primary" onclick="saveProfileDetails()">Save changes</button>
+  `;
+  populateDobSelects("ep", p.dob);
+});
+
+const saveProfileDetails = safeRender(async function () {
+  const name = document.getElementById("ep-name").value.trim();
+  const dob = readDobValue("ep");
+  const district = document.getElementById("ep-district").value;
+  const shareLocation = document.getElementById("ep-share-location").checked;
+  const currentPin = document.getElementById("ep-current-pin").value.trim();
+  const newPin = document.getElementById("ep-new-pin").value.trim();
+  const errEl = document.getElementById("ep-error");
+  errEl.innerHTML = "";
+  if (!name) { errEl.innerHTML = `<div class="error-banner">Enter your name.</div>`; return; }
+  if (!dob) { errEl.innerHTML = `<div class="error-banner">Enter your date of birth.</div>`; return; }
+  const age = ageFromDob(dob);
+  if (age < 18) { errEl.innerHTML = `<div class="error-banner">You must be 18 or older to use new+.</div>`; return; }
+  if (newPin && !/^\d{4}$/.test(newPin)) { errEl.innerHTML = `<div class="error-banner">New PIN must be exactly 4 digits.</div>`; return; }
+  if (newPin && !/^\d{4}$/.test(currentPin)) { errEl.innerHTML = `<div class="error-banner">Enter your current PIN to set a new one.</div>`; return; }
+
+  const { data, error } = await sb.rpc("update_profile_details", {
+    p_name: name, p_dob: dob, p_district: district,
+    p_lat: pickedCoords?.lat ?? null, p_lng: pickedCoords?.lng ?? null,
+    p_share_location: shareLocation
+  });
+  if (error) { errEl.innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  state.profile = data;
+
+  if (newPin) {
+    const { error: pinError } = await sb.rpc("change_pin", { p_current_pin: currentPin, p_new_pin: newPin });
+    if (pinError) {
+      const msg = pinError.message.includes("invalid_credentials") ? "Current PIN is incorrect." : friendlyError(pinError);
+      errEl.innerHTML = `<div class="error-banner">Your other details were saved, but the PIN change failed: ${escapeHtml(msg)}</div>`;
+      return;
+    }
+  }
+  renderProfile();
+});
+
+// ---------- CHAT ----------
+let chatPresenceInterval = null;
+function leaveChatChannel() {
+  if (state.messagesChannel) { sb.removeChannel(state.messagesChannel); state.messagesChannel = null; }
+  if (chatPresenceInterval) { clearInterval(chatPresenceInterval); chatPresenceInterval = null; }
+}
+
+function chatStatusLabel(other) {
+  if (!other || !other.last_seen_at) return "";
+  return isOnline(other.last_seen_at) ? "Online" : `Last seen ${timeAgo(other.last_seen_at)}`;
+}
+
+const openChatWith = safeRender(async function (otherProfileId) {
+  state.viewingChatList = false;
+  let other = state.people.find(pp => pp.id === otherProfileId) || state.chatListData?.peopleById?.[otherProfileId];
+  const { data: convo, error } = await sb.rpc("get_or_create_conversation", { p_other_profile_id: otherProfileId });
+  if (error) { alert(friendlyError(error)); return; }
+  if (!other) {
+    const { data } = await sb.from("profiles").select("id,name,dob,district,avatar_path,last_seen_at").eq("id", otherProfileId).maybeSingle();
+    other = data || null;
+  }
+  state.conversation = convo;
+  state.otherPerson = other || null;
+  await renderChat();
+  await sb.rpc("mark_conversation_read", { p_conversation_id: convo.id });
+  refreshUnreadCount();
+});
+
+async function renderChat() {
+  setAppMode("chat-mode");
+  state.replyingTo = null;
+  const other = state.otherPerson;
+  const url = other ? avatarUrl(other.avatar_path) : null;
+  root().innerHTML = `
+    <div class="chat-header">
+      <button class="icon-btn" onclick="closeChat()" style="padding:10px 12px">←</button>
+      <div class="avatar" onclick="viewPersonPhoto()" style="cursor:pointer">${url ? `<img src="${url}">` : initials(other?.name)}</div>
+      <div class="chat-header-info" onclick="viewPersonPhoto()" style="cursor:pointer">
+        <div class="person-name">${escapeHtml(other?.name || "Chat")}</div>
+        <div class="chat-status" id="chat-status">${chatStatusLabel(other)}</div>
+      </div>
+    </div>
+    <div class="chat-scroll" id="chat-scroll"><div class="center-loading"><div class="spinner"></div></div></div>
+    <div id="chat-error"></div>
+    <div id="reply-preview"></div>
+    <div class="chat-input-bar">
+      <button class="chat-icon-btn" onclick="pickChatImage()" title="Send a photo">📷</button>
+      <input id="chat-text" type="text" placeholder="Type a message…" onkeydown="if(event.key==='Enter')sendChatText()" onfocus="setTimeout(syncViewportHeight, 60);setTimeout(syncViewportHeight, 350)">
+      <span class="voice-record-timer" id="voice-record-timer" style="display:none">0:00</span>
+      <button class="chat-icon-btn voice-cancel-btn" id="voice-cancel-btn" style="display:none" onclick="cancelVoiceRecording()" title="Cancel">✕</button>
+      <button class="chat-icon-btn" id="voice-record-btn" onclick="toggleVoiceRecording()" title="Record a voice note">🎤</button>
+      <button class="chat-send-btn" onclick="sendChatText()">➤</button>
+    </div>
+    <input id="chat-image-input" type="file" accept="image/*" style="display:none" onchange="onChatImagePicked(event)">
+  `;
+  await loadMessages();
+  subscribeToMessages();
+  bindLongPress(document.getElementById("chat-scroll"), (e) => {
+    const row = e.target.closest(".bubble-row[data-message-id]");
+    if (row) showMessageActions(row);
+  });
+  bindLongPress(document.querySelector(".chat-header"), () => showChatActions(state.conversation.id));
+  bindSwipeToReply(document.getElementById("chat-scroll"));
+
+  if (other?.id) {
+    clearInterval(chatPresenceInterval);
+    chatPresenceInterval = setInterval(async () => {
+      const { data } = await sb.from("profiles").select("last_seen_at").eq("id", other.id).maybeSingle();
+      if (data) {
+        other.last_seen_at = data.last_seen_at;
+        const statusEl = document.getElementById("chat-status");
+        if (statusEl) statusEl.textContent = chatStatusLabel(other);
+      }
+    }, 30000);
+  }
+}
+
+function viewPersonPhoto() {
+  const other = state.otherPerson;
+  if (!other) return;
+  const url = avatarUrl(other.avatar_path);
+  const age = ageFromDob(other.dob);
+  const overlay = document.createElement("div");
+  overlay.className = "gif-picker";
+  overlay.id = "person-photo-overlay";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="gif-picker-sheet" style="align-items:center;text-align:center">
+      <div class="avatar lg" style="width:180px;height:180px;font-size:52px;margin:0 auto 14px">${url ? `<img src="${url}">` : initials(other.name)}</div>
+      <h3 style="margin-bottom:2px">${escapeHtml(other.name || "")}</h3>
+      <p style="margin-bottom:0">${escapeHtml(other.district || "")}${age ? ` · ${age} yrs` : ""}</p>
+      <button class="btn-secondary" style="margin-top:16px" onclick="document.getElementById('person-photo-overlay').remove()">Close</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+// ---------- LONG-PRESS ACTION SHEETS (delete message / delete chat) ----------
+function bindLongPress(el, onLongPress) {
+  if (!el) return;
+  let timer = null;
+  const start = (e) => { timer = setTimeout(() => onLongPress(e), 480); };
+  const cancel = () => clearTimeout(timer);
+  el.addEventListener("touchstart", start, { passive: true });
+  el.addEventListener("touchend", cancel);
+  el.addEventListener("touchmove", cancel);
+  el.addEventListener("mousedown", start);
+  el.addEventListener("mouseup", cancel);
+  el.addEventListener("mouseleave", cancel);
+  el.addEventListener("contextmenu", (e) => { e.preventDefault(); onLongPress(e); });
+}
+
+function closeActionSheet() { document.querySelectorAll(".gif-picker").forEach(o => o.remove()); }
+
+// ---------- SWIPE-RIGHT-TO-REPLY (WhatsApp-style gesture on a message bubble) ----------
+function bindSwipeToReply(container) {
+  if (!container) return;
+  const THRESHOLD = 54;
+  let row = null, startX = 0, startY = 0, dx = 0, active = false, locked = null;
+
+  function reset() {
+    if (row) {
+      row.style.transform = "";
+      row.classList.remove("swipe-ready");
+      const icon = row.querySelector(".swipe-reply-icon");
+      if (icon) { icon.style.opacity = ""; icon.style.transform = ""; }
+    }
+    row = null; active = false; locked = null; dx = 0;
+  }
+  function onStart(x, y, target) {
+    const found = target.closest && target.closest(".bubble-row[data-message-id]");
+    if (!found) return;
+    row = found; startX = x; startY = y; dx = 0; active = true; locked = null;
+  }
+  function onMove(x, y) {
+    if (!active || !row) return;
+    const moveX = x - startX, moveY = y - startY;
+    if (locked === null) {
+      if (Math.abs(moveX) < 6 && Math.abs(moveY) < 6) return;
+      locked = Math.abs(moveX) > Math.abs(moveY) ? "h" : "v";
+    }
+    if (locked === "v") return; // vertical scroll, let the page scroll normally
+    dx = Math.max(0, Math.min(moveX, THRESHOLD + 20));
+    row.style.transform = `translateX(${dx}px)`;
+    const icon = row.querySelector(".swipe-reply-icon");
+    if (icon) {
+      const progress = Math.min(dx / THRESHOLD, 1);
+      icon.style.opacity = progress;
+      icon.style.transform = `translateY(-50%) scale(${0.6 + 0.4 * progress})`;
+    }
+    row.classList.toggle("swipe-ready", dx >= THRESHOLD);
+  }
+  function onEnd() {
+    if (active && row && locked === "h" && dx >= THRESHOLD) startReply(row.dataset.messageId);
+    reset();
+  }
+
+  container.addEventListener("touchstart", (e) => onStart(e.touches[0].clientX, e.touches[0].clientY, e.target), { passive: true });
+  container.addEventListener("touchmove", (e) => { if (locked === "h") e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+  container.addEventListener("touchend", onEnd);
+  container.addEventListener("touchcancel", reset);
+
+  // mouse-drag equivalent, for testing on desktop
+  container.addEventListener("mousedown", (e) => onStart(e.clientX, e.clientY, e.target));
+  container.addEventListener("mousemove", (e) => { if (active) onMove(e.clientX, e.clientY); });
+  window.addEventListener("mouseup", () => { if (active) onEnd(); });
+}
+
+function showChatActions(convoId) {
+  closeActionSheet();
+  const overlay = document.createElement("div");
+  overlay.className = "gif-picker";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="gif-picker-sheet" style="max-height:none">
+      <h3 style="margin-bottom:10px">Delete this conversation?</h3>
+      <p style="margin-bottom:16px">All messages and photos will be gone for both of you — this can't be undone.</p>
+      <button class="btn-danger" style="width:100%;margin-bottom:10px" onclick="confirmDeleteChat('${convoId}')">Delete conversation</button>
+      <button class="btn-secondary" style="width:100%" onclick="closeActionSheet()">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+const confirmDeleteChat = safeRender(async function (convoId) {
+  closeActionSheet();
+  const { data: files } = await sb.storage.from("chat-images").list(convoId);
+  if (files && files.length) {
+    await sb.storage.from("chat-images").remove(files.map(f => `${convoId}/${f.name}`));
+  }
+  const { error } = await sb.from("conversations").delete().eq("id", convoId);
+  if (error) { alert(friendlyError(error)); return; }
+  if (state.conversation && state.conversation.id === convoId) { closeChat(); }
+  else { renderChatList(); }
+});
+
+function closeChat() {
+  setAppMode(null);
+  leaveChatChannel();
+  state.conversation = null;
+  state.otherPerson = null;
+  renderDirectory();
+}
+
+// ---------- CHATS LIST (sorted so the newest activity is always on top) ----------
+async function renderChatList() {
+  setAppMode(null);
+  root().innerHTML = `
+    <div class="top-bar"><button class="icon-btn" onclick="renderDirectory()">← Back</button><h2 style="margin:0">Chats</h2><span></span></div>
+    <input id="chat-search" type="text" placeholder="Search chats…" class="chat-search-input" oninput="filterChatList(this.value)">
+    <div id="chat-list">${`<div class="center-loading"><div class="spinner"></div></div>`}</div>
+  `;
+  state.viewingChatList = true;
+  const me = state.profile.id;
+  const { data: convos, error } = await sb.from("conversations").select("*")
+    .or(`user_a.eq.${me},user_b.eq.${me}`).order("last_message_at", { ascending: false });
+  const listEl = document.getElementById("chat-list");
+  if (error) { listEl.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`; return; }
+  if (!convos.length) { listEl.innerHTML = `<div class="empty-state">No chats yet — say hello to someone in the directory 👋</div>`; return; }
+
+  const otherIds = convos.map(c => (c.user_a === me ? c.user_b : c.user_a));
+  const [{ data: people }, { data: unreadRows }] = await Promise.all([
+    sb.from("profiles").select("id,name,avatar_path,last_seen_at").in("id", otherIds),
+    sb.rpc("get_unread_counts")
+  ]);
+  const peopleById = Object.fromEntries((people || []).map(p => [p.id, p]));
+  const unreadByConvo = Object.fromEntries((unreadRows || []).map(r => [r.conversation_id, r.unread_count]));
+  state.chatListData = { convos, peopleById, unreadByConvo, me };
+  renderChatRows("");
+}
+
+function renderChatRows(filterText) {
+  const listEl = document.getElementById("chat-list");
+  if (!listEl || !state.chatListData) return;
+  const { convos, peopleById, unreadByConvo, me } = state.chatListData;
+  const q = (filterText || "").trim().toLowerCase();
+  const filtered = !q ? convos : convos.filter(c => {
+    const otherId = c.user_a === me ? c.user_b : c.user_a;
+    const name = peopleById[otherId]?.name || "";
+    return name.toLowerCase().includes(q);
+  });
+  if (!filtered.length) { listEl.innerHTML = `<div class="empty-state">No chats match "${escapeHtml(filterText)}"</div>`; return; }
+
+  listEl.innerHTML = filtered.map(c => {
+    const otherId = c.user_a === me ? c.user_b : c.user_a;
+    const other = peopleById[otherId];
+    const unreadCount = unreadByConvo[c.id] || 0;
+    const url = other ? avatarUrl(other.avatar_path) : null;
+    return `
+      <div class="person-row" data-convo-id="${c.id}" onclick="openChatWith('${otherId}')">
+        <div class="avatar">${url ? `<img src="${url}">` : initials(other?.name)}${isOnline(other?.last_seen_at) ? `<span class="online-dot" title="Online"></span>` : ""}</div>
+        <div class="person-info">
+          <div class="person-name">${escapeHtml(other?.name || "Someone")}${unreadCount > 0 ? `<span class="unread-count">${unreadCount}</span>` : ""}</div>
+          <div class="person-meta"><span>${timeAgo(c.last_message_at)}</span></div>
+        </div>
+        <span class="person-chevron">›</span>
+      </div>`;
+  }).join("");
+  bindLongPress(listEl, (e) => {
+    const row = e.target.closest(".person-row[data-convo-id]");
+    if (row) showChatActions(row.dataset.convoId);
+  });
+}
+
+function filterChatList(value) {
+  renderChatRows(value);
+}
+
+async function loadMessages() {
+  const { data, error } = await sb.from("messages").select("*").eq("conversation_id", state.conversation.id).order("created_at");
+  const scrollEl = document.getElementById("chat-scroll");
+  if (error) { scrollEl.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`; return; }
+  const { data: hides } = await sb.from("message_hides").select("message_id").eq("profile_id", state.profile.id);
+  const hiddenIds = new Set((hides || []).map(h => h.message_id));
+  state.messages = (data || []).filter(m => !hiddenIds.has(m.id));
+  renderMessageList();
+}
+
+function renderMessageList() {
+  const scrollEl = document.getElementById("chat-scroll");
+  if (!scrollEl) return;
+  if (!state.messages.length) {
+    scrollEl.innerHTML = `<div class="empty-state">Say hello 👋</div>`;
+    return;
+  }
+  // Render every bubble synchronously first — text shows instantly and image
+  // bubbles get a placeholder — instead of blocking the whole list on every
+  // signed-URL fetch. Each image then hydrates independently as it resolves.
+  const byId = Object.fromEntries(state.messages.map(m => [m.id, m]));
+  const rows = state.messages.map((m, i) => {
+    const mine = m.sender_id === state.profile.id;
+    let bodyHtml = "";
+    let bubbleClass = "bubble";
+    if (m.kind === "text") bodyHtml = escapeHtml(m.body || "");
+    else if (m.kind === "image") {
+      bubbleClass = "bubble bubble-image";
+      bodyHtml = `<div class="bubble-image-placeholder" id="img-slot-${i}"><div class="spinner"></div></div>`;
+    } else if (m.kind === "voice") {
+      bubbleClass = "bubble bubble-voice";
+      bodyHtml = `<div class="voice-note-placeholder" id="voice-slot-${i}">🎤 <span class="hint">${formatDuration(parseInt(m.body) || 0)}</span></div>`;
+    }
+    let quoteHtml = "";
+    const quoted = m.reply_to_id ? byId[m.reply_to_id] : null;
+    if (m.reply_to_id) {
+      const quotedMine = quoted ? quoted.sender_id === state.profile.id : false;
+      const who = quoted ? (quotedMine ? "You" : (state.otherPerson?.name || "Them")) : "";
+      quoteHtml = `
+        <div class="bubble-quote" onclick="scrollToMessage('${m.reply_to_id}')">
+          ${quoted ? `<div class="bubble-quote-name">${escapeHtml(who)}</div><div class="bubble-quote-snippet">${escapeHtml(replyPreviewText(quoted))}</div>` : `<div class="bubble-quote-snippet">Original message unavailable</div>`}
+        </div>`;
+    }
+    return `
+      <div class="bubble-row ${mine ? "mine" : ""}" data-message-id="${m.id}" data-mine="${mine}" data-image-path="${escapeHtml(m.image_path || "")}">
+        <span class="swipe-reply-icon">↩</span>
+        <div>
+          <div class="${bubbleClass}">${quoteHtml}${bodyHtml}</div>
+          <div class="bubble-time">${timeAgo(m.created_at)}</div>
+        </div>
+      </div>`;
+  });
+  scrollEl.innerHTML = rows.join("");
+  scrollEl.scrollTop = scrollEl.scrollHeight;
+
+  state.messages.forEach((m, i) => {
+    if (m.kind !== "image") return;
+    chatImageUrl(m.image_path).then(url => {
+      const slot = document.getElementById(`img-slot-${i}`);
+      if (!slot) return;
+      if (!url) { slot.outerHTML = `<div class="error-banner" style="margin:0">Couldn't load photo.</div>`; return; }
+      const img = new Image();
+      img.decoding = "async";
+      img.onload = () => { slot.replaceWith(img); scrollEl.scrollTop = scrollEl.scrollHeight; };
+      img.onerror = () => { slot.outerHTML = `<div class="error-banner" style="margin:0">Couldn't load photo.</div>`; };
+      img.onclick = () => openImageLightbox(url);
+      img.src = url;
+    });
+  });
+
+  state.messages.forEach((m, i) => {
+    if (m.kind !== "voice") return;
+    chatVoiceUrl(m.image_path).then(url => {
+      const slot = document.getElementById(`voice-slot-${i}`);
+      if (!slot) return;
+      if (!url) { slot.outerHTML = `<div class="error-banner" style="margin:0">Couldn't load voice note.</div>`; return; }
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.className = "voice-note-player";
+      audio.onerror = () => {
+        audio.outerHTML = `<div class="error-banner" style="margin:0">This voice note can't play on this device (recording format not supported here).</div>`;
+      };
+      audio.src = url;
+      slot.replaceWith(audio);
+    });
+  });
+}
+
+const chatImageUrlCache = new Map();
+async function chatImageUrl(path) {
+  if (!path) return null;
+  if (chatImageUrlCache.has(path)) return chatImageUrlCache.get(path);
+  const { data, error } = await sb.storage.from("chat-images").createSignedUrl(path, 3600);
+  if (error) { console.error(error); return null; }
+  chatImageUrlCache.set(path, data.signedUrl);
+  return data.signedUrl;
+}
+
+const chatVoiceUrlCache = new Map();
+async function chatVoiceUrl(path) {
+  if (!path) return null;
+  if (chatVoiceUrlCache.has(path)) return chatVoiceUrlCache.get(path);
+  const { data, error } = await sb.storage.from("voice-notes").createSignedUrl(path, 3600);
+  if (error) { console.error(error); return null; }
+  chatVoiceUrlCache.set(path, data.signedUrl);
+  return data.signedUrl;
+}
+
+function openImageLightbox(url) {
+  const overlay = document.createElement("div");
+  overlay.className = "gif-picker lightbox-overlay";
+  overlay.onclick = () => overlay.remove();
+  overlay.innerHTML = `<img src="${url}" class="lightbox-img">`;
+  document.body.appendChild(overlay);
+}
+
+function showMessageActions(row) {
+  closeActionSheet();
+  const messageId = row.dataset.messageId;
+  const mine = row.dataset.mine === "true";
+  const imagePath = row.dataset.imagePath || "";
+  const overlay = document.createElement("div");
+  overlay.className = "gif-picker";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="gif-picker-sheet" style="max-height:none">
+      <h3 style="margin-bottom:12px">Message</h3>
+      <button class="btn-secondary" style="width:100%;margin-bottom:10px" onclick="startReply('${messageId}')">Reply</button>
+      ${mine ? `<button class="btn-danger" style="width:100%;margin-bottom:10px" onclick="confirmDeleteMessage('${messageId}', '${escapeHtml(imagePath)}', true)">Delete for everyone</button>` : ""}
+      <button class="btn-secondary" style="width:100%;margin-bottom:10px" onclick="confirmDeleteMessage('${messageId}', '${escapeHtml(imagePath)}', false)">Delete for me</button>
+      <button class="btn-secondary" style="width:100%" onclick="closeActionSheet()">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+// ---------- REPLY (quote a message, WhatsApp-style) ----------
+function replyPreviewText(m) {
+  if (!m) return "";
+  if (m.kind === "image") return "📷 Photo";
+  if (m.kind === "voice") return `🎤 Voice note · ${formatDuration(parseInt(m.body) || 0)}`;
+  return (m.body || "").slice(0, 80);
+}
+
+function formatDuration(secs) {
+  secs = Math.max(0, Math.round(secs || 0));
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+}
+
+function startReply(messageId) {
+  closeActionSheet();
+  const target = state.messages.find(m => m.id === messageId);
+  if (!target) return;
+  state.replyingTo = target;
+  renderReplyPreview();
+  const input = document.getElementById("chat-text");
+  if (input) input.focus();
+}
+
+function cancelReply() {
+  state.replyingTo = null;
+  renderReplyPreview();
+}
+
+function renderReplyPreview() {
+  const el = document.getElementById("reply-preview");
+  if (!el) return;
+  const r = state.replyingTo;
+  if (!r) { el.innerHTML = ""; return; }
+  const mine = r.sender_id === state.profile.id;
+  const who = mine ? "You" : (state.otherPerson?.name || "Them");
+  el.innerHTML = `
+    <div class="reply-bar">
+      <div class="reply-bar-text">
+        <div class="reply-bar-name">${escapeHtml(who)}</div>
+        <div class="reply-bar-snippet">${escapeHtml(replyPreviewText(r))}</div>
+      </div>
+      <button class="icon-btn" onclick="cancelReply()" title="Cancel reply">✕</button>
+    </div>`;
+}
+
+function scrollToMessage(messageId) {
+  const row = document.querySelector(`.bubble-row[data-message-id="${messageId}"]`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.add("flash-highlight");
+  setTimeout(() => row.classList.remove("flash-highlight"), 900);
+}
+
+const confirmDeleteMessage = safeRender(async function (messageId, imagePath, forEveryone) {
+  closeActionSheet();
+  if (forEveryone) {
+    if (imagePath) await sb.storage.from("chat-images").remove([imagePath]);
+    const { error } = await sb.from("messages").delete().eq("id", messageId);
+    if (error) { document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  } else {
+    const { error } = await sb.from("message_hides").upsert(
+      { message_id: messageId, profile_id: state.profile.id },
+      { onConflict: "message_id,profile_id" }
+    );
+    if (error) { document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`; return; }
+  }
+  state.messages = state.messages.filter(m => m.id !== messageId);
+  renderMessageList();
+});
+
+function subscribeToMessages() {
+  leaveChatChannel();
+  state.messagesChannel = sb.channel("conversation-" + state.conversation.id)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: "conversation_id=eq." + state.conversation.id },
+      (payload) => {
+        state.messages.push(payload.new);
+        renderMessageList();
+      })
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages", filter: "conversation_id=eq." + state.conversation.id },
+      (payload) => {
+        state.messages = state.messages.filter(m => m.id !== payload.old.id);
+        renderMessageList();
+      })
+    .subscribe();
+}
+
+const sendChatText = safeRender(async function () {
+  const input = document.getElementById("chat-text");
+  const text = input.value.trim();
+  if (!text) return;
+  const replyToId = state.replyingTo ? state.replyingTo.id : null;
+  input.value = "";
+  state.replyingTo = null;
+  renderReplyPreview();
+  const { error } = await sb.rpc("send_message", { p_conversation_id: state.conversation.id, p_kind: "text", p_body: text, p_image_path: null, p_reply_to_id: replyToId });
+  if (error) document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`;
+});
+
+function pickChatImage() { document.getElementById("chat-image-input").click(); }
+
+const onChatImagePicked = safeRender(async function (e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const replyToId = state.replyingTo ? state.replyingTo.id : null;
+  state.replyingTo = null;
+  renderReplyPreview();
+  document.getElementById("chat-error").innerHTML = `<div class="hint">Sending photo…</div>`;
+  const blob = await compressImage(file);
+  const path = `${state.conversation.id}/${Date.now()}.jpg`;
+  const { error: upErr } = await sb.storage.from("chat-images").upload(path, blob, { contentType: "image/jpeg" });
+  document.getElementById("chat-error").innerHTML = "";
+  if (upErr) { document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(upErr.message)}</div>`; return; }
+  const { error } = await sb.rpc("send_message", { p_conversation_id: state.conversation.id, p_kind: "image", p_body: null, p_image_path: path, p_reply_to_id: replyToId });
+  if (error) document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`;
+  e.target.value = "";
+});
+
+// ---------- VOICE NOTES (tap mic to start recording, tap again to stop and send) ----------
+let voiceRecorder = null, voiceChunks = [], voiceStartTime = 0, voiceTimerInterval = null, voiceStream = null;
+
+const toggleVoiceRecording = safeRender(async function () {
+  if (voiceRecorder && voiceRecorder.state === "recording") { finishVoiceRecording(false); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    alert("Couldn't access your microphone. Check your browser permissions and try again.");
+    return;
+  }
+  voiceStream = stream;
+  voiceChunks = [];
+  voiceStartTime = Date.now();
+  const mimeType = (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")) ? "audio/webm" : "";
+  voiceRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  voiceRecorder.ondataavailable = (ev) => { if (ev.data.size > 0) voiceChunks.push(ev.data); };
+  voiceRecorder.start();
+  setVoiceRecordingUI(true);
+  voiceTimerInterval = setInterval(() => {
+    const el = document.getElementById("voice-record-timer");
+    if (el) el.textContent = formatDuration((Date.now() - voiceStartTime) / 1000);
+  }, 250);
+});
+
+function cancelVoiceRecording() { finishVoiceRecording(true); }
+
+function finishVoiceRecording(cancelled) {
+  if (!voiceRecorder) return;
+  const durationSec = Math.round((Date.now() - voiceStartTime) / 1000);
+  const recorder = voiceRecorder;
+  voiceRecorder = null;
+  clearInterval(voiceTimerInterval);
+  setVoiceRecordingUI(false);
+  recorder.onstop = async () => {
+    voiceStream?.getTracks().forEach(t => t.stop());
+    voiceStream = null;
+    if (cancelled || durationSec < 1) { voiceChunks = []; return; }
+    const rawBlob = new Blob(voiceChunks, { type: recorder.mimeType || "audio/webm" });
+    let sendBlob = rawBlob;
+    // Different phones record in different formats (Android/Chrome records
+    // WebM, iPhone/Safari records MP4) and can't all PLAY BACK each other's
+    // format — Safari in particular can't play WebM at all. Converting to
+    // MP3 here, right after recording, means every recipient gets a format
+    // their browser can actually play, regardless of what recorded it.
+    try {
+      if (typeof lamejs !== "undefined") sendBlob = await encodeToMp3(rawBlob);
+    } catch (e) {
+      console.warn("MP3 conversion failed, sending original recording format:", e);
+    }
+    uploadAndSendVoiceNote(sendBlob, durationSec);
+  };
+  recorder.stop();
+}
+
+async function encodeToMp3(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  const numChannels = Math.min(audioBuffer.numberOfChannels, 2);
+  const sampleRate = audioBuffer.sampleRate;
+  const encoder = new lamejs.Mp3Encoder(numChannels, sampleRate, 96);
+  const blockSize = 1152;
+  const channelData = [];
+  for (let ch = 0; ch < numChannels; ch++) channelData.push(audioBuffer.getChannelData(ch));
+  const floatTo16 = (f) => { const s = Math.max(-1, Math.min(1, f)); return s < 0 ? s * 0x8000 : s * 0x7FFF; };
+
+  const mp3Chunks = [];
+  const len = audioBuffer.length;
+  for (let i = 0; i < len; i += blockSize) {
+    const n = Math.min(blockSize, len - i);
+    const left = new Int16Array(n);
+    for (let j = 0; j < n; j++) left[j] = floatTo16(channelData[0][i + j]);
+    let mp3buf;
+    if (numChannels === 2) {
+      const right = new Int16Array(n);
+      for (let j = 0; j < n; j++) right[j] = floatTo16(channelData[1][i + j]);
+      mp3buf = encoder.encodeBuffer(left, right);
+    } else {
+      mp3buf = encoder.encodeBuffer(left);
+    }
+    if (mp3buf.length > 0) mp3Chunks.push(mp3buf);
+  }
+  const finalBuf = encoder.flush();
+  if (finalBuf.length > 0) mp3Chunks.push(finalBuf);
+  audioCtx.close();
+  return new Blob(mp3Chunks, { type: "audio/mpeg" });
+}
+
+function setVoiceRecordingUI(isRecording) {
+  const micBtn = document.getElementById("voice-record-btn");
+  const timerEl = document.getElementById("voice-record-timer");
+  const cancelBtn = document.getElementById("voice-cancel-btn");
+  const textInput = document.getElementById("chat-text");
+  if (micBtn) { micBtn.textContent = isRecording ? "⏹" : "🎤"; micBtn.title = isRecording ? "Stop and send" : "Record a voice note"; micBtn.classList.toggle("voice-record-btn-active", isRecording); }
+  if (timerEl) timerEl.style.display = isRecording ? "inline" : "none";
+  if (cancelBtn) cancelBtn.style.display = isRecording ? "inline-flex" : "none";
+  if (textInput) textInput.style.display = isRecording ? "none" : "block";
+}
+
+const uploadAndSendVoiceNote = safeRender(async function (blob, durationSec) {
+  const replyToId = state.replyingTo ? state.replyingTo.id : null;
+  state.replyingTo = null;
+  renderReplyPreview();
+  document.getElementById("chat-error").innerHTML = `<div class="hint">Sending voice note…</div>`;
+  const ext = blob.type === "audio/mpeg" ? "mp3" : ((blob.type || "").includes("mp4") ? "m4a" : "webm");
+  const path = `${state.conversation.id}/${Date.now()}.${ext}`;
+  const { error: upErr } = await sb.storage.from("voice-notes").upload(path, blob, { contentType: blob.type || "audio/webm" });
+  document.getElementById("chat-error").innerHTML = "";
+  if (upErr) { document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(upErr.message)}</div>`; return; }
+  const { error } = await sb.rpc("send_message", { p_conversation_id: state.conversation.id, p_kind: "voice", p_body: String(durationSec), p_image_path: path, p_reply_to_id: replyToId });
+  if (error) document.getElementById("chat-error").innerHTML = `<div class="error-banner">${escapeHtml(friendlyError(error))}</div>`;
+});
+
+</script>
+</body>
+</html>
