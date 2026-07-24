@@ -651,7 +651,7 @@ create policy "statuses_delete_own" on statuses for delete
 -- thread. A comment can be removed by whoever wrote it, the post's owner
 -- (moderation on your own post), or admin.
 alter table status_comments enable row level security;
-drop policy if exists "status_comments_select_if_status_visible" on status_comments;
+drop policy if exists "status_comments_select_owner_or_admin" on status_comments;
 create policy "status_comments_select_owner_or_admin" on status_comments for select
   using (
     is_admin()
