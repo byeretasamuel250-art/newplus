@@ -5,5 +5,5 @@
 // Both files (index.html and admin.html) load this file, so you
 // only need to set it once.
 // ============================================================
-const SUPABASE_URL = "https://dkgkiyvxliyfprquedya.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_gGhh9ZdaIhJlHxDbevj89w_30evGVNI";
+const SUPABASE_URL = "https://tgpqzphfmhactykxahqn.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_QTUByYlNoDQ8RoJ_usnAJw_p3VAVwLt";
