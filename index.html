@@ -529,7 +529,7 @@ function renderRegister() {
       <p>Just the basics for now — you'll add your name and photo next.</p>
       <div id="reg-error"></div>
       <label for="r-phone">Phone number</label>
-      <input id="r-phone" type="tel" placeholder="07XXXXXXXX">
+      <input id="r-phone" type="tel" inputmode="numeric" maxlength="13" placeholder="07XXXXXXXX">
       <label for="r-pin">Choose a 4-digit PIN</label>
       <input id="r-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
       <label for="r-dob-day">Date of birth</label>
@@ -605,7 +605,7 @@ function renderLogin() {
       <h2>Welcome back</h2>
       <div id="login-error"></div>
       <label for="l-phone">Phone number</label>
-      <input id="l-phone" type="tel" placeholder="07XXXXXXXX">
+      <input id="l-phone" type="tel" inputmode="numeric" maxlength="13" placeholder="07XXXXXXXX">
       <label for="l-pin">PIN</label>
       <input id="l-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
       <button class="btn-primary btn-shine" onclick="doLogin()">Log in</button>
@@ -626,7 +626,7 @@ function renderForgotPin() {
       <p>Enter your phone number and we'll flag your account for an admin to help you get back in.</p>
       <div id="forgot-error"></div>
       <label for="fp-phone">Phone number</label>
-      <input id="fp-phone" type="tel" placeholder="07XXXXXXXX">
+      <input id="fp-phone" type="tel" inputmode="numeric" maxlength="13" placeholder="07XXXXXXXX">
       <button class="btn-primary btn-shine" onclick="doRequestPinReset()">Request reset</button>
       <button class="btn-link" onclick="renderLogin()">← Back to log in</button>
     </div>
