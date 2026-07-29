@@ -106,8 +106,12 @@ and a Deactivate/Reactivate button — deactivating immediately logs them
 out of new+ and blocks login until reactivated.
 
 **PIN resets:** if a user forgets their PIN, they tap "Forgot PIN?" on
-the login screen and enter their phone number — this doesn't need them to
-be logged in. It shows up in **PIN resets** in `admin.html`. Verify it's
+the login screen and enter their phone number, plus their date of birth
+and district — this doesn't need them to be logged in. It shows up in
+**PIN resets** in `admin.html`, where you'll see what they typed next to
+what's actually on file, with a "matches ✓" / "mismatch ✗" flag for each.
+A mismatch isn't an automatic reject — a genuine user can misremember a
+detail — but it's a reason to ask more on the call. Still verify it's
 really them the same way you'd trust for a payment (you know them, a
 phone call, etc.), then Approve — this generates a random 4-digit
 temporary PIN and pops it up on screen for you to relay to them yourself
@@ -136,7 +140,10 @@ the ring goes from bright to muted once they've seen everything from that
 person (each viewer can only see their own view history, never anyone
 else's). Just paste the whole `schema.sql` into the SQL Editor and run it
 again — everything uses `create or replace` / `if not exists` / `add
-column if not exists`, so nothing existing gets touched or lost.
+column if not exists`, so nothing existing gets touched or lost. This
+update also adds `submitted_dob` and `submitted_district` columns to
+`pin_reset_requests`, for the new verification questions on the
+forgot-PIN form.
 
 ## About location
 
