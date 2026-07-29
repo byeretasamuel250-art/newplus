@@ -1,5 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /admin.html
-
-Sitemap: https://newplus-gold.vercel.app/sitemap.xml
