@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment complete — newplus</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div class="brand">newplus</div>
+  <div class="card welcome-card" style="text-align:center">
+    <h1 style="font-size:1.15em;margin:0 0 10px">Thanks!</h1>
+    <p style="margin-bottom:14px">We're confirming your payment with Pesapal — this usually takes just a few seconds. Your subscription will activate automatically, no need to do anything else.</p>
+    <a href="/" class="btn-primary" style="display:inline-block;text-decoration:none;padding:12px 28px">Back to newplus</a>
+  </div>
+</div>
+<script>
+  // If Pesapal redirected here quickly, give the confirmation a moment to
+  // land, then send them back into the app automatically.
+  setTimeout(() => { window.location.href = "/"; }, 4000);
+</script>
+</body>
+</html>
