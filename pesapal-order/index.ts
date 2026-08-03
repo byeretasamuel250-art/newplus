@@ -90,18 +90,36 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "no_profile" }), { status: 400, headers: corsHeaders });
     }
 
-    // Mirrors the DB's one-pending-request-per-profile rule, with a clearer error for the app to show.
+    // Mirrors the DB's one-pending-request-per-profile rule, but with a
+    // self-healing twist: a Pesapal attempt that's more than 5 minutes old
+    // almost certainly means the customer abandoned it (wrong PIN, no
+    // wallet balance, closed the tab, etc.) rather than it still being in
+    // progress — so we quietly clear it and let them try again, instead of
+    // making them wait for an admin. A genuinely fresh pending request
+    // (under 5 minutes) still blocks, to avoid two orders firing at once
+    // if they tap the button twice. A stuck *manual* request still blocks
+    // permanently — that one needs a human to actually check the payment.
     const { data: existingPending } = await sb
       .from("subscription_requests")
-      .select("id")
+      .select("id, payment_method, created_at")
       .eq("profile_id", profile.id)
       .eq("status", "pending")
       .maybeSingle();
     if (existingPending) {
-      return new Response(JSON.stringify({ error: "already_pending" }), { status: 409, headers: corsHeaders });
+      const ageMs = Date.now() - new Date(existingPending.created_at).getTime();
+      const isStalePesapal = existingPending.payment_method === "pesapal" && ageMs > 5 * 60 * 1000;
+      if (isStalePesapal) {
+        await sb.from("subscription_requests").update({ status: "rejected" }).eq("id", existingPending.id);
+      } else {
+        return new Response(JSON.stringify({ error: "already_pending" }), { status: 409, headers: corsHeaders });
+      }
     }
 
-    const merchantRef = `sub_${profile.id}_${Date.now()}`;
+    // Pesapal requires this reference to be 50 characters or fewer, using
+    // only letters, numbers, dashes, underscores, dots, or colons — it does
+    // NOT need to contain the profile ID, since the row itself already
+    // links this reference back to the right profile.
+    const merchantRef = `sub-${Date.now().toString(36)}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
 
     const { error: insertErr } = await sb.from("subscription_requests").insert({
       profile_id: profile.id,
