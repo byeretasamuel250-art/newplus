@@ -11,22 +11,32 @@
 //   Supabase auth token attached)
 //
 // Secrets needed (set once, see SETUP_GUIDE.md):
-//   supabase secrets set PESAPAL_CONSUMER_KEY=...
-//   supabase secrets set PESAPAL_CONSUMER_SECRET=...
+//   supabase secrets set PESAPAL_CONSUMER_KEY=...        (YOUR real merchant key, used only when PESAPAL_ENV=live)
+//   supabase secrets set PESAPAL_CONSUMER_SECRET=...     (YOUR real merchant secret, used only when PESAPAL_ENV=live)
 //   supabase secrets set PESAPAL_ENV=sandbox   (switch to "live" once your Pesapal KYC/contract is approved)
 //   (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically)
+//
+// Sandbox testing uses Pesapal's shared public demo credentials (not your
+// real ones — sandbox and live are separate systems with separate keys),
+// so no extra secret is needed to test.
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const CONSUMER_KEY = Deno.env.get("PESAPAL_CONSUMER_KEY")!;
-const CONSUMER_SECRET = Deno.env.get("PESAPAL_CONSUMER_SECRET")!;
 const PESAPAL_ENV = Deno.env.get("PESAPAL_ENV") || "sandbox";
 
-// Sandbox = test mode (no real money moves). Live = real payments, only
-// works once your Pesapal contract/KYC is approved.
+// Sandbox = test mode (no real money moves, uses Pesapal's shared public
+// demo credentials for Uganda). Live = your real account, real payments —
+// only works once your Pesapal contract/KYC is approved.
+const CONSUMER_KEY = PESAPAL_ENV === "live"
+  ? Deno.env.get("PESAPAL_CONSUMER_KEY")!
+  : "TDpigBOOhs+zAl8cwH2Fl82jJGyD8xev";
+const CONSUMER_SECRET = PESAPAL_ENV === "live"
+  ? Deno.env.get("PESAPAL_CONSUMER_SECRET")!
+  : "1KpqkfsMaihIcOlhnBo/gBZ5smw=";
+
 const BASE_URL = PESAPAL_ENV === "live"
   ? "https://pay.pesapal.com/v3"
   : "https://cybqa.pesapal.com/pesapalv3";
