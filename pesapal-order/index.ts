@@ -46,6 +46,14 @@ const SUBSCRIPTION_AMOUNT = 2000; // UGX, matches the existing manual flow
 
 const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+// Browsers block cross-origin calls unless the server explicitly allows
+// them. Without these headers, the "Pay with Pesapal" button fails with a
+// generic error before the request even reaches this code.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 async function getPesapalToken(): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/Auth/RequestToken`, {
     method: "POST",
@@ -58,13 +66,19 @@ async function getPesapalToken(): Promise<string> {
 }
 
 Deno.serve(async (req) => {
+  // The browser sends a preflight OPTIONS request before the real one —
+  // it must get a quick "yes, this is allowed" reply.
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
     // Identify the caller from their Supabase session token (works for
     // anonymous sessions too — new+ has no email/password login).
     const jwt = (req.headers.get("Authorization") || "").replace("Bearer ", "");
     const { data: userData, error: userErr } = await sb.auth.getUser(jwt);
     if (userErr || !userData?.user) {
-      return new Response(JSON.stringify({ error: "not_authenticated" }), { status: 401 });
+      return new Response(JSON.stringify({ error: "not_authenticated" }), { status: 401, headers: corsHeaders });
     }
 
     const { data: profile } = await sb
@@ -73,7 +87,7 @@ Deno.serve(async (req) => {
       .eq("auth_uid", userData.user.id)
       .maybeSingle();
     if (!profile) {
-      return new Response(JSON.stringify({ error: "no_profile" }), { status: 400 });
+      return new Response(JSON.stringify({ error: "no_profile" }), { status: 400, headers: corsHeaders });
     }
 
     // Mirrors the DB's one-pending-request-per-profile rule, with a clearer error for the app to show.
@@ -84,7 +98,7 @@ Deno.serve(async (req) => {
       .eq("status", "pending")
       .maybeSingle();
     if (existingPending) {
-      return new Response(JSON.stringify({ error: "already_pending" }), { status: 409 });
+      return new Response(JSON.stringify({ error: "already_pending" }), { status: 409, headers: corsHeaders });
     }
 
     const merchantRef = `sub_${profile.id}_${Date.now()}`;
@@ -126,13 +140,13 @@ Deno.serve(async (req) => {
       .eq("merchant_reference", merchantRef);
 
     return new Response(JSON.stringify({ redirect_url: orderData.redirect_url }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
   } catch (err) {
     console.error(err);
     return new Response(JSON.stringify({ error: String(err) }), {
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
     });
   }
