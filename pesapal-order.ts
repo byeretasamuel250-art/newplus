@@ -1,0 +1,139 @@
+// ============================================================
+// pesapal-order — Supabase Edge Function
+//
+// Called by the app (from a logged-in user's browser) when they tap
+// "Subscribe". Verifies who they are, records a pending payment request,
+// asks Pesapal to create an order, and returns a redirect_url — the app
+// sends the browser there so the user can pay.
+//
+// Deploy with:  supabase functions deploy pesapal-order
+//   (no --no-verify-jwt here — unlike pesapal-ipn, this one is only ever
+//   called by your own logged-in users, so Supabase's normal auth check
+//   stays on)
+//
+// Secrets needed (see SETUP_GUIDE.md):
+//   supabase secrets set PESAPAL_CONSUMER_KEY=...     (YOUR real merchant key, used only when PESAPAL_ENV=live)
+//   supabase secrets set PESAPAL_CONSUMER_SECRET=...  (YOUR real merchant secret, used only when PESAPAL_ENV=live)
+//   supabase secrets set PESAPAL_ENV=sandbox          (switch to "live" once your Pesapal contract/KYC is approved)
+//   supabase secrets set PESAPAL_IPN_ID=...           (from registering pesapal-ipn's URL — see SETUP_GUIDE.md)
+//   (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically)
+// ============================================================
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const PESAPAL_ENV = Deno.env.get("PESAPAL_ENV") || "sandbox";
+const PESAPAL_IPN_ID = Deno.env.get("PESAPAL_IPN_ID")!;
+
+// Sandbox = test mode, uses Pesapal's shared public demo credentials for
+// Uganda (not your real ones). Live = your real account, real payments.
+const CONSUMER_KEY = PESAPAL_ENV === "live"
+  ? Deno.env.get("PESAPAL_CONSUMER_KEY")!
+  : "TDpigBOOhs+zAl8cwH2Fl82jJGyD8xev";
+const CONSUMER_SECRET = PESAPAL_ENV === "live"
+  ? Deno.env.get("PESAPAL_CONSUMER_SECRET")!
+  : "1KpqkfsMaihIcOlhnBo/gBZ5smw=";
+
+const BASE_URL = PESAPAL_ENV === "live"
+  ? "https://pay.pesapal.com/v3"
+  : "https://cybqa.pesapal.com/pesapalv3";
+
+// Where Pesapal sends the user's browser back to after they pay (or cancel).
+const CALLBACK_URL = "https://newplus.app/payment-complete.html";
+
+const SUBSCRIPTION_AMOUNT = 2000; // UGX, matches the existing manual flow
+
+const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+async function getPesapalToken(): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/Auth/RequestToken`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ consumer_key: CONSUMER_KEY, consumer_secret: CONSUMER_SECRET }),
+  });
+  const data = await res.json();
+  if (!data.token) throw new Error("Pesapal auth failed: " + JSON.stringify(data));
+  return data.token;
+}
+
+Deno.serve(async (req) => {
+  try {
+    // Identify the caller from their Supabase session token (works for
+    // anonymous sessions too — new+ has no email/password login).
+    const jwt = (req.headers.get("Authorization") || "").replace("Bearer ", "");
+    const { data: userData, error: userErr } = await sb.auth.getUser(jwt);
+    if (userErr || !userData?.user) {
+      return new Response(JSON.stringify({ error: "not_authenticated" }), { status: 401 });
+    }
+
+    const { data: profile } = await sb
+      .from("profiles")
+      .select("id, name, phone")
+      .eq("auth_uid", userData.user.id)
+      .maybeSingle();
+    if (!profile) {
+      return new Response(JSON.stringify({ error: "no_profile" }), { status: 400 });
+    }
+
+    // Mirrors the DB's one-pending-request-per-profile rule, with a clearer error for the app to show.
+    const { data: existingPending } = await sb
+      .from("subscription_requests")
+      .select("id")
+      .eq("profile_id", profile.id)
+      .eq("status", "pending")
+      .maybeSingle();
+    if (existingPending) {
+      return new Response(JSON.stringify({ error: "already_pending" }), { status: 409 });
+    }
+
+    const merchantRef = `sub_${profile.id}_${Date.now()}`;
+
+    const { error: insertErr } = await sb.from("subscription_requests").insert({
+      profile_id: profile.id,
+      payment_method: "pesapal",
+      merchant_reference: merchantRef,
+      amount: SUBSCRIPTION_AMOUNT,
+      status: "pending",
+    });
+    if (insertErr) throw insertErr;
+
+    const token = await getPesapalToken();
+    const orderRes = await fetch(`${BASE_URL}/api/Transactions/SubmitOrderRequest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        id: merchantRef,
+        currency: "UGX",
+        amount: SUBSCRIPTION_AMOUNT,
+        description: "newplus monthly subscription",
+        callback_url: CALLBACK_URL,
+        notification_id: PESAPAL_IPN_ID,
+        billing_address: {
+          phone_number: profile.phone || "",
+          first_name: profile.name || "newplus",
+          last_name: "user",
+        },
+      }),
+    });
+    const orderData = await orderRes.json();
+    if (!orderData.redirect_url) {
+      throw new Error("Pesapal order failed: " + JSON.stringify(orderData));
+    }
+
+    await sb.from("subscription_requests")
+      .update({ pesapal_tracking_id: orderData.order_tracking_id })
+      .eq("merchant_reference", merchantRef);
+
+    return new Response(JSON.stringify({ redirect_url: orderData.redirect_url }), {
+      headers: { "Content-Type": "application/json" },
+      status: 200,
+    });
+  } catch (err) {
+    console.error(err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      headers: { "Content-Type": "application/json" },
+      status: 500,
+    });
+  }
+});
