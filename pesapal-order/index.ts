@@ -91,12 +91,12 @@ Deno.serve(async (req) => {
     }
 
     // Mirrors the DB's one-pending-request-per-profile rule, but with a
-    // self-healing twist: a Pesapal attempt that's more than 5 minutes old
+    // self-healing twist: a Pesapal attempt that's more than 1 minute old
     // almost certainly means the customer abandoned it (wrong PIN, no
     // wallet balance, closed the tab, etc.) rather than it still being in
     // progress — so we quietly clear it and let them try again, instead of
     // making them wait for an admin. A genuinely fresh pending request
-    // (under 5 minutes) still blocks, to avoid two orders firing at once
+    // (under 1 minute) still blocks, to avoid two orders firing at once
     // if they tap the button twice. A stuck *manual* request still blocks
     // permanently — that one needs a human to actually check the payment.
     const { data: existingPending } = await sb
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (existingPending) {
       const ageMs = Date.now() - new Date(existingPending.created_at).getTime();
-      const isStalePesapal = existingPending.payment_method === "pesapal" && ageMs > 5 * 60 * 1000;
+      const isStalePesapal = existingPending.payment_method === "pesapal" && ageMs > 1 * 60 * 1000;
       if (isStalePesapal) {
         await sb.from("subscription_requests").update({ status: "rejected" }).eq("id", existingPending.id);
       } else {
