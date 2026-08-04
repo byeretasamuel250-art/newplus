@@ -92,16 +92,20 @@ Deno.serve(async (req) => {
       if (description === "COMPLETED") {
         const expires = new Date();
         expires.setDate(expires.getDate() + 30);
-        await sb.from("subscription_requests")
+        const { error: reqUpdateErr } = await sb.from("subscription_requests")
           .update({ status: "approved", pesapal_tracking_id: trackingId })
           .eq("id", reqRow.id);
-        await sb.from("profiles")
+        if (reqUpdateErr) console.error("Failed to update subscription_requests:", reqUpdateErr);
+
+        const { error: profileUpdateErr } = await sb.from("profiles")
           .update({ subscription_status: "active", subscription_expires_at: expires.toISOString() })
           .eq("id", reqRow.profile_id);
+        if (profileUpdateErr) console.error("Failed to activate profile subscription:", profileUpdateErr);
       } else if (description === "FAILED" || description === "INVALID") {
-        await sb.from("subscription_requests")
+        const { error: rejectErr } = await sb.from("subscription_requests")
           .update({ status: "rejected", pesapal_tracking_id: trackingId })
           .eq("id", reqRow.id);
+        if (rejectErr) console.error("Failed to update subscription_requests:", rejectErr);
       }
       // Anything else (e.g. "PENDING") — leave it alone, Pesapal will call again on the next change.
     }
