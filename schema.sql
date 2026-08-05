@@ -1824,4 +1824,33 @@ $$;
 
 -- (the two triggers that call this function already exist and don't need
 -- to be re-created — replacing the function's body is enough)
+-- ============================================================
+-- Patch: close the statuses-bucket read gap
+-- ------------------------------------------------------------
+-- The `statuses` table's own select policy only shows a status if it's
+-- still unexpired AND the poster's account is still active. The storage
+-- policy that gates the underlying photo FILE didn't check either of
+-- those — so once a status expired (24h) or its poster was deactivated,
+-- the app stopped showing the post, but the image file itself stayed
+-- downloadable by any active subscriber who still had its path. This
+-- brings the storage policy in line with the table policy.
+-- ============================================================
 
+drop policy if exists "statuses_bucket_read_subscriber_or_own" on storage.objects;
+create policy "statuses_bucket_read_subscriber_or_own" on storage.objects for select
+  using (
+    bucket_id = 'statuses'
+    and (
+      (storage.foldername(name))[1] = my_profile_id()::text
+      or is_admin()
+      or (
+        is_active_subscriber()
+        and profile_is_active((storage.foldername(name))[1]::uuid)
+        and exists (
+          select 1 from statuses s
+          where s.image_path = name
+            and s.expires_at > now()
+        )
+      )
+    )
+  );
