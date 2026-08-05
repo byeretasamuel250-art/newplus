@@ -1755,3 +1755,73 @@ begin
 end $$;
 
 select cron.schedule('cleanup-old-messages', '0 3 * * *', $$select cleanup_old_messages();$$);
+-- ============================================================
+-- Patch: add a shared secret to the push-notification trigger
+-- ------------------------------------------------------------
+-- Paste this into Supabase's SQL Editor and run it AFTER you've:
+--   1. Redeployed send-push with the new code (checks X-Internal-Secret)
+--   2. Picked a random secret and set it in TWO places:
+--
+--      a) As an edge function secret:
+--         supabase secrets set PUSH_TRIGGER_SECRET=<your random secret>
+--
+--      b) As a Postgres database setting, so the trigger can read it
+--         (run this in the SQL Editor, with YOUR real secret):
+--         alter database postgres set app.settings.push_trigger_secret = '<your random secret>';
+--
+--         Use the SAME value in both places. A long random string works
+--         well, e.g. generate one with: openssl rand -hex 32
+--
+-- This replaces notify_send_push() so the call to send-push includes an
+-- X-Internal-Secret header. send-push now rejects any request that's
+-- missing this header or has the wrong value — closing the hole where
+-- anyone with the public anon key could POST a crafted body directly to
+-- send-push and trigger a fake notification to any user.
+-- ============================================================
+
+create or replace function notify_send_push()
+returns trigger
+language plpgsql
+security definer
+as $$
+declare
+  recipient_id uuid;
+  recipient_muted boolean := false;
+begin
+  if TG_TABLE_NAME = 'messages' then
+    select case
+      when user_a = NEW.sender_id then user_b
+      when user_b = NEW.sender_id then user_a
+    end into recipient_id
+    from conversations where id = NEW.conversation_id;
+  elsif TG_TABLE_NAME = 'notifications' then
+    recipient_id := NEW.profile_id;
+  end if;
+
+  if recipient_id is not null then
+    select push_muted into recipient_muted from profiles where id = recipient_id;
+    if recipient_muted then
+      return NEW;
+    end if;
+  end if;
+
+  perform net.http_post(
+    url := 'https://tgpqzphfmhactykxahqn.supabase.co/functions/v1/send-push',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer sb_publishable_QTUByYlNoDQ8RoJ_usnAJw_p3VAVwLt',
+      'X-Internal-Secret', current_setting('app.settings.push_trigger_secret', true)
+    ),
+    body := jsonb_build_object(
+      'type', 'INSERT',
+      'table', TG_TABLE_NAME,
+      'record', to_jsonb(NEW)
+    )
+  );
+  return NEW;
+end;
+$$;
+
+-- (the two triggers that call this function already exist and don't need
+-- to be re-created — replacing the function's body is enough)
+
