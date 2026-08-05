@@ -19,6 +19,27 @@
 // Sandbox testing uses Pesapal's shared public demo credentials (not your
 // real ones — sandbox and live are separate systems with separate keys),
 // so no extra secret is needed to test.
+//
+// ------------------------------------------------------------
+// SECURITY FIX (see security review): this endpoint is public — anyone
+// can POST to it with any OrderTrackingId / OrderMerchantReference they
+// like, since Pesapal calls it with no auth token. The code below always
+// re-verifies the REAL status of a tracking ID directly with Pesapal, so
+// a caller can never fake "COMPLETED" for a payment that didn't happen.
+//
+// But the row to update must ALSO be found using something Pesapal
+// itself vouches for — never the caller-supplied merchant reference.
+// Previously this looked the row up by `merchant_reference` taken
+// straight from the request, which let someone pair ONE real completed
+// trackingId with ANY OTHER pending merchant_reference they happened to
+// know (e.g. one of their own other, unpaid accounts) and get it
+// approved for free. It now looks the row up by `pesapal_tracking_id`
+// instead — a value that was (a) written to the database by
+// pesapal-order at order-creation time, before any payment happened, and
+// (b) is exactly the trackingId whose status we just verified with
+// Pesapal — so there's no longer any caller-controlled input in the
+// lookup itself.
+// ------------------------------------------------------------
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -74,6 +95,8 @@ Deno.serve(async (req) => {
     }
 
     // Don't trust the notification alone — ask Pesapal directly what the real status is.
+    // This call is the ONLY source of truth for `description` below — a caller
+    // can never make this say "COMPLETED" for a trackingId that wasn't really paid.
     const token = await getPesapalToken();
     const statusRes = await fetch(
       `${BASE_URL}/api/Transactions/GetTransactionStatus?orderTrackingId=${encodeURIComponent(trackingId)}`,
@@ -82,10 +105,16 @@ Deno.serve(async (req) => {
     const statusData = await statusRes.json();
     const description = (statusData.payment_status_description || "").toUpperCase();
 
+    // IMPORTANT: look the row up by pesapal_tracking_id — a value we
+    // ourselves wrote to the database when the order was created, and
+    // which is exactly the trackingId whose status Pesapal just verified
+    // above. Never look this up by the caller-supplied merchantRef; that
+    // field is only used below to echo back Pesapal's required
+    // confirmation shape, never to decide which row gets approved.
     const { data: reqRow } = await sb
       .from("subscription_requests")
       .select("id, profile_id")
-      .eq("merchant_reference", merchantRef)
+      .eq("pesapal_tracking_id", trackingId)
       .maybeSingle();
 
     if (reqRow) {
@@ -93,7 +122,7 @@ Deno.serve(async (req) => {
         const expires = new Date();
         expires.setDate(expires.getDate() + 30);
         const { error: reqUpdateErr } = await sb.from("subscription_requests")
-          .update({ status: "approved", pesapal_tracking_id: trackingId })
+          .update({ status: "approved" })
           .eq("id", reqRow.id);
         if (reqUpdateErr) console.error("Failed to update subscription_requests:", reqUpdateErr);
 
@@ -103,7 +132,7 @@ Deno.serve(async (req) => {
         if (profileUpdateErr) console.error("Failed to activate profile subscription:", profileUpdateErr);
       } else if (description === "FAILED" || description === "INVALID") {
         const { error: rejectErr } = await sb.from("subscription_requests")
-          .update({ status: "rejected", pesapal_tracking_id: trackingId })
+          .update({ status: "rejected" })
           .eq("id", reqRow.id);
         if (rejectErr) console.error("Failed to update subscription_requests:", rejectErr);
       }
@@ -111,6 +140,8 @@ Deno.serve(async (req) => {
     }
 
     // Pesapal requires this exact confirmation shape back, or it will keep retrying.
+    // Echoing back the caller's own merchantRef/notificationType here is fine — it's
+    // just satisfying Pesapal's expected response shape, not used for any decision above.
     return new Response(JSON.stringify({
       orderNotificationType: notificationType,
       orderTrackingId: trackingId,
