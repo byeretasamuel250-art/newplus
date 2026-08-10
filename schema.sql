@@ -1313,12 +1313,29 @@ create policy "profiles_delete_admin" on profiles for delete using (is_admin());
 -- move subscription_status to 'active'/'expired', change the expiry date,
 -- or toggle is_active. A user MAY set their own status to 'pending' (the
 -- self-service "I've paid" step) but nothing further.
+--
+-- One narrow exception: flipping 'active' straight to 'expired' is always
+-- allowed, but ONLY when the row's own subscription_expires_at has
+-- already passed. This lets the expire_lapsed_subscriptions() cleanup job
+-- (below) keep the label honest on a schedule without needing elevated
+-- database privileges. It grants nothing extra to a regular user either —
+-- is_active_subscriber() already treats a passed expiry as inactive
+-- regardless of this label, so setting it themselves a moment earlier
+-- changes nothing they don't already lack.
 create or replace function protect_admin_fields()
 returns trigger language plpgsql as $$
 begin
   if not is_admin() and auth.role() <> 'service_role' then
     if new.subscription_status is distinct from 'pending' then
-      new.subscription_status := old.subscription_status;
+      if new.subscription_status = 'expired'
+         and old.subscription_status = 'active'
+         and old.subscription_expires_at is not null
+         and old.subscription_expires_at <= now()
+      then
+        -- allowed: new.subscription_status keeps the caller's 'expired' value
+      else
+        new.subscription_status := old.subscription_status;
+      end if;
     end if;
     new.subscription_expires_at := old.subscription_expires_at;
     new.is_active := old.is_active;
@@ -1331,9 +1348,20 @@ create trigger trg_protect_admin_fields before update on profiles
   for each row execute function protect_admin_fields();
 
 -- subscription_requests
+-- A direct client insert must always start out 'pending' — approving or
+-- rejecting a request is only ever done by an admin (requests_update_admin
+-- below) or by the service-role pesapal-ipn function, never by the
+-- inserting user themselves. Without this, nothing stopped a direct
+-- INSERT from setting status straight to 'approved'; that alone didn't
+-- grant anything (activating a subscription is a separate, admin/
+-- service-role-only update to profiles), but it's tightened here anyway
+-- so a stray row can't even look approved.
 drop policy if exists "requests_insert_own" on subscription_requests;
 create policy "requests_insert_own" on subscription_requests for insert
-  with check (exists (select 1 from profiles p where p.id = profile_id and p.auth_uid = auth.uid()));
+  with check (
+    exists (select 1 from profiles p where p.id = profile_id and p.auth_uid = auth.uid())
+    and status = 'pending'
+  );
 drop policy if exists "requests_select_own_or_admin" on subscription_requests;
 create policy "requests_select_own_or_admin" on subscription_requests for select
   using (exists (select 1 from profiles p where p.id = profile_id and p.auth_uid = auth.uid()) or is_admin());
@@ -1854,3 +1882,115 @@ create policy "statuses_bucket_read_subscriber_or_own" on storage.objects for se
       )
     )
   );
+
+-- ============================================================
+-- Patch: keep subscription_status accurate after it lapses
+-- ------------------------------------------------------------
+-- Real access control never depended on this label — is_active_subscriber(),
+-- get_directory(), and send_message() all check subscription_expires_at
+-- directly, so a lapsed user was already correctly blocked from browsing
+-- and chatting the instant their time ran out. But nothing ever flipped
+-- the profiles.subscription_status column itself from 'active' to
+-- 'expired', which meant:
+--   - the user's own "My profile" screen kept showing "active" (fixed
+--     separately in index.html to check the real expiry too, but this
+--     keeps the underlying data itself honest)
+--   - admin.html's user list and "active users" count kept counting
+--     lapsed accounts as active, with no visual way to tell who'd
+--     actually lapsed
+--
+-- This adds a daily job, same pattern as cleanup-old-messages above, that
+-- flips the label once the expiry date has passed. It changes nothing
+-- about who can access what — that was already correct — it only keeps
+-- the status people and the admin SEE in sync with reality.
+-- ============================================================
+create or replace function expire_lapsed_subscriptions()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- security definer bypasses the profiles RLS SELECT/UPDATE policies (own
+  -- row or admin only) so this can see and update every lapsed row, not
+  -- just one. The trg_protect_admin_fields trigger still fires on this
+  -- update as normal — it explicitly allows exactly this one transition
+  -- (see protect_admin_fields() above), so no privilege escalation of any
+  -- kind is needed here.
+  update profiles
+  set subscription_status = 'expired'
+  where subscription_status = 'active'
+    and subscription_expires_at is not null
+    and subscription_expires_at <= now();
+end;
+$$;
+
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'expire-lapsed-subscriptions') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'expire-lapsed-subscriptions';
+  end if;
+end $$;
+
+-- runs once an hour; access control itself doesn't depend on this timing,
+-- it only keeps the displayed status reasonably fresh
+select cron.schedule('expire-lapsed-subscriptions', '5 * * * *', $$select expire_lapsed_subscriptions();$$);
+
+-- ============================================================
+-- Patch: clean up expired status photos (storage was filling up
+-- forever with no cleanup)
+-- ------------------------------------------------------------
+-- Statuses already "expire" after 24h in the sense that nobody can see
+-- them anymore — every read policy for the `statuses` table and the
+-- `statuses` storage bucket already requires expires_at > now(). But
+-- nothing ever actually DELETED the row or its photo file once that
+-- happened, so both just sat there taking up database and storage space
+-- forever. On the free tier's 1GB storage cap, that adds up fast.
+--
+-- Mirrors the exact same two-step pattern as cleanup_old_messages()
+-- above (delete the storage file first, then the row), and is just as
+-- safe to re-run — this whole block uses create-or-replace / drop-if-
+-- exists throughout, same as everywhere else in this file.
+--
+-- The 1-hour buffer past expires_at is just a small safety margin, not a
+-- functional requirement — read access is already blocked the instant
+-- expires_at passes, this only delays the actual delete slightly so
+-- there's no chance of racing a request that's mid-flight right at the
+-- expiry boundary.
+--
+-- This does NOT touch statuses that haven't expired yet, comments/likes
+-- on other people's statuses, or anything outside the `statuses` table
+-- and the `statuses` storage bucket.
+-- ============================================================
+create or replace function cleanup_expired_statuses()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- remove the photo files first, so nothing gets orphaned in storage
+  delete from storage.objects
+  where bucket_id = 'statuses'
+    and name in (
+      select image_path from statuses
+      where image_path is not null and expires_at < now() - interval '1 hour'
+    );
+
+  -- then the status rows themselves — status_comments, status_likes,
+  -- status_views, and notifications referencing them all cascade-delete
+  -- automatically via their existing foreign keys
+  delete from statuses where expires_at < now() - interval '1 hour';
+end;
+$$;
+
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'cleanup-expired-statuses') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'cleanup-expired-statuses';
+  end if;
+end $$;
+
+-- runs once a day, 15 minutes after the existing message cleanup job so
+-- they never overlap
+select cron.schedule('cleanup-expired-statuses', '15 3 * * *', $$select cleanup_expired_statuses();$$);
