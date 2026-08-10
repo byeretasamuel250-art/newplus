@@ -40,6 +40,32 @@
 // Pesapal — so there's no longer any caller-controlled input in the
 // lookup itself.
 // ------------------------------------------------------------
+// SECURITY FIX #2 (replay): OrderTrackingId is not a secret — the paying
+// user sees it themselves (it's in the redirect back to
+// payment-complete.html). Pesapal's own status for a completed order
+// never changes back to "not completed", so simply re-calling this same
+// public URL with the same trackingId would keep re-confirming
+// "COMPLETED" forever. Without a check here, that meant anyone could
+// replay their own trackingId after their 30 days ran out and get
+// another free 30 days, indefinitely — and legitimate webhook retries
+// from Pesapal itself (most providers redeliver at least once) would
+// have silently done the same thing by accident.
+//
+// Fix: only ever act on a "COMPLETED" status if the matching request row
+// is still `pending`. Once it flips to `approved`, this trackingId is
+// considered fully handled and any further calls for it are a no-op —
+// same idea as the existing "one pending request per profile" unique
+// index, just enforced here too. Renewing for a NEW period still works
+// completely normally, because pesapal-order always creates a brand new
+// `subscription_requests` row (new id, new pending status, new
+// trackingId) for each fresh payment attempt.
+// ------------------------------------------------------------
+// SECURITY FIX #3 (stacking): a renewal that lands before the previous
+// period has actually run out used to reset the clock to "now + 30
+// days" instead of adding to what was left — someone renewing a few
+// days early would actually lose those days. It now extends from
+// whichever is later: today, or their current subscription_expires_at.
+// ------------------------------------------------------------
 // ============================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -113,23 +139,58 @@ Deno.serve(async (req) => {
     // confirmation shape, never to decide which row gets approved.
     const { data: reqRow } = await sb
       .from("subscription_requests")
-      .select("id, profile_id")
+      .select("id, profile_id, status")
       .eq("pesapal_tracking_id", trackingId)
       .maybeSingle();
 
-    if (reqRow) {
+    // Only act if this specific request is still pending. If it's already
+    // "approved", this trackingId was fully handled by an earlier call
+    // (Pesapal retry, or the user replaying their own trackingId) — do
+    // nothing further, so nobody can re-extend their subscription by
+    // calling this URL again with a trackingId that already paid out
+    // once. A brand new payment always gets a brand new pending row from
+    // pesapal-order, so genuine renewals are unaffected.
+    if (reqRow && reqRow.status === "pending") {
       if (description === "COMPLETED") {
-        const expires = new Date();
-        expires.setDate(expires.getDate() + 30);
-        const { error: reqUpdateErr } = await sb.from("subscription_requests")
+        // Claim this request atomically: the update only touches a row that
+        // is STILL 'pending' at the moment it runs, and tells us whether it
+        // actually changed anything. This closes a narrow race where two
+        // calls for the same trackingId (e.g. a genuine Pesapal retry
+        // landing at the same instant as a replay) could otherwise both
+        // pass the plain status check above before either finished writing,
+        // and both go on to extend the subscription.
+        const { data: claimedRows, error: reqUpdateErr } = await sb
+          .from("subscription_requests")
           .update({ status: "approved" })
-          .eq("id", reqRow.id);
+          .eq("id", reqRow.id)
+          .eq("status", "pending")
+          .select("id");
         if (reqUpdateErr) console.error("Failed to update subscription_requests:", reqUpdateErr);
 
-        const { error: profileUpdateErr } = await sb.from("profiles")
-          .update({ subscription_status: "active", subscription_expires_at: expires.toISOString() })
-          .eq("id", reqRow.profile_id);
-        if (profileUpdateErr) console.error("Failed to activate profile subscription:", profileUpdateErr);
+        // Someone else's concurrent call already claimed it — don't also
+        // extend the subscription a second time.
+        if (claimedRows && claimedRows.length > 0) {
+          // Extend from whichever is later — now, or whatever time the
+          // person already has left — so renewing early adds to their
+          // remaining days instead of resetting the clock.
+          const { data: profileRow } = await sb
+            .from("profiles")
+            .select("subscription_expires_at")
+            .eq("id", reqRow.profile_id)
+            .maybeSingle();
+
+          const currentExpiry = profileRow?.subscription_expires_at
+            ? new Date(profileRow.subscription_expires_at)
+            : null;
+          const base = currentExpiry && currentExpiry > new Date() ? currentExpiry : new Date();
+          const expires = new Date(base);
+          expires.setDate(expires.getDate() + 30);
+
+          const { error: profileUpdateErr } = await sb.from("profiles")
+            .update({ subscription_status: "active", subscription_expires_at: expires.toISOString() })
+            .eq("id", reqRow.profile_id);
+          if (profileUpdateErr) console.error("Failed to activate profile subscription:", profileUpdateErr);
+        }
       } else if (description === "FAILED" || description === "INVALID") {
         const { error: rejectErr } = await sb.from("subscription_requests")
           .update({ status: "rejected" })
