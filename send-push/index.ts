@@ -32,6 +32,16 @@
 // notify_send_push() trigger in schema.sql). Any request missing or
 // mismatching it is rejected before touching the database or sending
 // anything.
+//
+// THIS IS THE FILE THAT MUST BE DEPLOYED — an older copy of this
+// function without the X-Internal-Secret check is still floating around;
+// if that one is what's live, this protection isn't actually active yet.
+// Also make sure both of these are set to the SAME value, or every
+// request will be rejected (push just silently stops working, nothing
+// breaks loudly):
+//   1. Edge function secret:  supabase secrets set PUSH_TRIGGER_SECRET=<value>
+//   2. Postgres setting (SQL Editor, with the SAME value):
+//      alter database postgres set app.settings.push_trigger_secret = '<value>';
 // ------------------------------------------------------------
 // ============================================================
 
