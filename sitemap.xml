@@ -26,4 +26,9 @@
       <image:caption>Founder of newplus, a free app to meet new people nearby in Uganda</image:caption>
     </image:image>
   </url>
+  <url>
+    <loc>https://newplus.app/privacy.html</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
 </urlset>
