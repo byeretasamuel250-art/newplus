@@ -569,6 +569,21 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 /* ---------- chat screen ---------- */
 .chat-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .chat-header .person-name { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.chat-body .chat-scroll { flex: 1; }
+.scroll-bottom-btn {
+  position: absolute; right: 14px; bottom: 14px; z-index: 5;
+  width: 40px; height: 40px; padding: 0; border-radius: 50%;
+  background: var(--bg-card-raised); border: 1px solid var(--line); color: var(--cream);
+  align-items: center; justify-content: center; font-size: 17px; line-height: 1;
+  box-shadow: 0 4px 14px rgba(0,0,0,.3); cursor: pointer;
+}
+.scroll-bottom-btn:hover { border-color: var(--amber); color: var(--amber); }
+.scroll-bottom-badge {
+  position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--amber); color: #2b1706; font-size: 10.5px; font-weight: 700;
+  align-items: center; justify-content: center;
+}
 .chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; }
 .bubble-row { display: flex; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; position: relative; }
 .bubble-row.mine { justify-content: flex-end; }
