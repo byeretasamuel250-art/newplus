@@ -24,12 +24,18 @@ self.addEventListener("activate", (event) => {
 // each new link as a brand-new file and re-downloads it from scratch,
 // every single time you open a chat or log back in.
 //
-// This fixes that: it looks only at the FILE'S OWN PATH inside the
-// link (ignoring the one-time security code part), and if it's already
-// downloaded that exact file before, it hands back the saved copy
-// instantly instead of downloading it again. A file you've never
-// opened before still downloads normally the first time — only repeat
-// opens of the same photo/voice note are skipped.
+// Profile pictures use a plain, unchanging link instead, so they don't
+// have that same problem — but we cache them here too anyway, so they
+// come from the saved copy instantly rather than depending on the
+// browser's own, less predictable caching.
+//
+// This fixes both: it looks only at the FILE'S OWN PATH inside the
+// link (ignoring the one-time security code part, for chat media), and
+// if it's already downloaded that exact file before, it hands back the
+// saved copy instantly instead of downloading it again. A file you've
+// never opened before still downloads normally the first time — only
+// repeat opens of the same photo/voice note/profile picture are
+// skipped, matching how WhatsApp only downloads what's actually new.
 // ------------------------------------------------------------
 self.addEventListener("fetch", (event) => {
   const req = event.request;
@@ -39,12 +45,15 @@ self.addEventListener("fetch", (event) => {
   const isChatMedia =
     url.pathname.includes("/storage/v1/object/sign/chat-images/") ||
     url.pathname.includes("/storage/v1/object/sign/voice-notes/");
-  if (!isChatMedia) return;
+  const isAvatar = url.pathname.includes("/storage/v1/object/public/avatars/");
+  if (!isChatMedia && !isAvatar) return;
 
   // Cache key = the file's own path, WITHOUT the one-time security code
   // (that's in the query string) — so the same photo is recognized as
   // "already have this" no matter how many different signed links
-  // point to it over time.
+  // point to it over time. Profile pictures have no such code, but
+  // stripping the query string is harmless and keeps this one rule
+  // working the same way for both.
   const cacheKey = url.origin + url.pathname;
 
   event.respondWith(
