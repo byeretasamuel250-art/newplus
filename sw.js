@@ -57,23 +57,41 @@ self.addEventListener("fetch", (event) => {
   const cacheKey = url.origin + url.pathname;
 
   event.respondWith(
-    caches.open(MEDIA_CACHE).then(async (cache) => {
-      const cached = await cache.match(cacheKey);
-      if (cached) return cached;
+    (async () => {
+      try {
+        const cache = await caches.open(MEDIA_CACHE);
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
 
-      const response = await fetch(req);
-      // Chat photos load through a plain <img> tag, which the browser
-      // sends as a special cross-site request that deliberately hides
-      // the real success/fail status from any code watching, including
-      // this service worker ("opaque" response) — so photos need to be
-      // cached even though we can't directly confirm they succeeded.
-      // Voice notes use a normal fetch() instead, so those still only
-      // get cached once we've confirmed they actually succeeded.
-      if (response.ok || response.type === "opaque") {
-        cache.put(cacheKey, response.clone());
+        const response = await fetch(req);
+        // Chat photos load through a plain <img> tag, which the browser
+        // sends as a special cross-site request that deliberately hides
+        // the real success/fail status from any code watching, including
+        // this service worker ("opaque" response) — so photos need to be
+        // cached even though we can't directly confirm they succeeded.
+        // Voice notes use a normal fetch() instead, so those still only
+        // get cached once we've confirmed they actually succeeded.
+        try {
+          if (response.ok || response.type === "opaque") {
+            await cache.put(cacheKey, response.clone());
+          }
+        } catch (saveErr) {
+          // Some phones/browsers (e.g. Private/Incognito mode, some
+          // in-app browsers) don't allow saving files for later reuse.
+          // That's fine — the photo/voice note still loaded just now,
+          // it just won't be instant on the next visit. Never let a
+          // saving problem take away a photo that already loaded fine.
+        }
+        return response;
+      } catch (err) {
+        // Something about the "remember this file" feature itself isn't
+        // available on this phone/browser right now — fall back to a
+        // completely plain, normal download instead, exactly as if this
+        // feature didn't exist. This guarantees a hiccup in caching can
+        // never turn into a "failed to load" error for a real photo.
+        return fetch(req);
       }
-      return response;
-    })
+    })()
   );
 });
 
