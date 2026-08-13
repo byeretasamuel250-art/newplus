@@ -6,14 +6,26 @@
 // open instantly instead of re-downloading every time you open a chat.
 // ============================================================
 
-const MEDIA_CACHE = "newplus-media-v1";
+const MEDIA_CACHE = "newplus-media-v2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Remove any older, now-unused version of the media cache (e.g. the
+      // one from before this fix) instead of leaving it taking up space
+      // forever.
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((n) => n.startsWith("newplus-media-") && n !== MEDIA_CACHE)
+          .map((n) => caches.delete(n))
+      );
+      await self.clients.claim();
+    })()
+  );
 });
 
 // ------------------------------------------------------------
@@ -54,7 +66,15 @@ self.addEventListener("fetch", (event) => {
   // point to it over time. Profile pictures have no such code, but
   // stripping the query string is harmless and keeps this one rule
   // working the same way for both.
-  const cacheKey = url.origin + url.pathname;
+  //
+  // A photo shown normally in the chat and the same photo being
+  // explicitly downloaded via the "Save image" button ask for the file
+  // in two technically different ways — one where the browser hides
+  // the result from view, one where the app needs to actually read it.
+  // They must never share a saved copy, or the save/download button can
+  // end up handed a copy it can't read, which shows as "Failed to
+  // fetch" even though the photo loaded and displayed just fine.
+  const cacheKey = url.origin + url.pathname + "?__variant=" + (req.mode === "no-cors" ? "display" : "download");
 
   event.respondWith(
     (async () => {
