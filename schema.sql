@@ -638,7 +638,17 @@ begin
       else '50+ km away'
     end as distance_label
   from dists
-  order by (dists.d_km is null) asc, dists.d_km asc, (dists.district = my_district) desc, dists.name asc;
+  order by (dists.d_km is null) asc, dists.d_km asc, (dists.district = my_district) desc, dists.name asc
+  -- SCALE FIX: this query used to return literally every active,
+  -- complete profile with no cap — fine at today's size, but it would
+  -- get slower to load for everyone as the number of registered users
+  -- grows, since it always scans and ranks the whole table. 1000 is a
+  -- generous ceiling that changes nothing about what anyone sees right
+  -- now (closest/most relevant people still come first); it just stops
+  -- the query from being truly unbounded. If the app ever grows past
+  -- ~1000 registered people, revisit this with real pagination
+  -- (a "load more" button) rather than raising the number further.
+  limit 1000;
 end;
 $$;
 grant execute on function get_directory() to anon, authenticated;
@@ -1999,3 +2009,103 @@ end $$;
 -- runs once a day, 15 minutes after the existing message cleanup job so
 -- they never overlap
 select cron.schedule('cleanup-expired-statuses', '15 3 * * *', $$select cleanup_expired_statuses();$$);
+
+-- ============================================================
+-- Patch: directory live-updates never actually reached other users
+-- ------------------------------------------------------------
+-- profiles' own security rule correctly says a user can only read
+-- their OWN row directly (see "profiles_select_own_or_admin" above) —
+-- that's intentional, it's what stops phone numbers and PIN hashes
+-- leaking to anyone with the app's public key. But the "live directory"
+-- feature in index.html was built by listening to raw changes on the
+-- profiles table itself, and that listener is filtered by that exact
+-- same security rule. Net effect: for every regular (non-admin) user,
+-- that listener silently never received events for anyone else's
+-- profile — new signups, photo/name changes, subscriptions activating,
+-- and so on never appeared live. Nothing errored; it just quietly did
+-- nothing, and the directory only ever updated on the next page load.
+--
+-- Fix: broadcast only the same safe, already-public fields
+-- get_directory() and get_public_profiles() already hand out to
+-- everyone (name/avatar/district/dob/last_seen_at/active flags) over a
+-- separate, public Realtime Broadcast channel — not the raw table —
+-- so it's never subject to the profiles table's row-level security in
+-- the first place. No phone number or PIN data is ever included.
+--
+-- IMPORTANT: this deliberately does NOT fire on a change to
+-- last_seen_at by itself. last_seen_at updates every ~90 seconds for
+-- every single online person (the existing "presence heartbeat" in
+-- index.html) — broadcasting that to every directory viewer, every 90
+-- seconds, for every online user, would multiply into a very large
+-- number of realtime messages as more people use the app at once
+-- (exactly the kind of scaling problem you asked me to watch out for).
+-- Skipping it here means online/offline status still updates normally
+-- whenever the directory reloads, just not instantly the second
+-- someone opens the app — a deliberate, safe trade-off.
+-- ============================================================
+create or replace function broadcast_directory_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec profiles;
+begin
+  if TG_OP = 'DELETE' then
+    perform realtime.send(
+      jsonb_build_object('id', OLD.id, 'deleted', true),
+      'profile_changed',
+      'directory-updates',
+      false
+    );
+    return OLD;
+  end if;
+
+  rec := NEW;
+
+  if TG_OP = 'UPDATE' then
+    -- nothing directory-relevant changed (e.g. this was just the
+    -- last_seen_at heartbeat, or an internal field like pin_hash) —
+    -- skip the broadcast entirely, see note above
+    if NEW.name is not distinct from OLD.name
+      and NEW.dob is not distinct from OLD.dob
+      and NEW.district is not distinct from OLD.district
+      and NEW.avatar_path is not distinct from OLD.avatar_path
+      and NEW.is_active is not distinct from OLD.is_active
+      and NEW.profile_complete is not distinct from OLD.profile_complete
+      and NEW.subscription_status is not distinct from OLD.subscription_status
+    then
+      return NEW;
+    end if;
+  end if;
+
+  perform realtime.send(
+    jsonb_build_object(
+      'id', rec.id,
+      'name', rec.name,
+      'dob', rec.dob,
+      'district', rec.district,
+      'avatar_path', rec.avatar_path,
+      'last_seen_at', rec.last_seen_at,
+      'is_active', rec.is_active,
+      'profile_complete', rec.profile_complete,
+      'subscription_status', rec.subscription_status
+    ),
+    'profile_changed',
+    'directory-updates',
+    false
+  );
+
+  return rec;
+exception when others then
+  -- a broadcast hiccup (e.g. a transient Realtime issue) must never be
+  -- allowed to block or fail the actual profile write it's attached to
+  return coalesce(NEW, OLD);
+end;
+$$;
+
+drop trigger if exists trg_broadcast_directory_change on profiles;
+create trigger trg_broadcast_directory_change
+  after insert or update or delete on profiles
+  for each row execute function broadcast_directory_change();
