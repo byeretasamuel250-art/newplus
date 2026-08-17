@@ -1,7 +1,7 @@
 {
   "name": "newplus",
   "short_name": "newplus",
-  "description": "Meet new people near you in Uganda.",
+  "description": "Find and post jobs and gigs near you in Uganda.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
