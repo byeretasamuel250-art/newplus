@@ -590,7 +590,16 @@ grant execute on function get_my_location() to anon, authenticated;
 -- The directory: returns a coarse distance bucket instead of a raw number,
 -- and computes it entirely server-side so no caller ever receives another
 -- user's coordinates (or even their own exact distance) in the response.
-create or replace function get_directory()
+--
+-- PAGINATION UPDATE: this used to hand back everything in one go (later
+-- capped at a flat 1000). It now takes a page size (p_limit) and how many
+-- rows to skip (p_offset), like turning pages — call it once with no
+-- arguments to get the first 200 people, then again with p_offset=200 for
+-- the next 200, and so on. p_limit is clamped to 200 server-side (not just
+-- trusted from the caller) so a direct RPC call can't request a huge page
+-- and defeat the point of paging.
+drop function if exists get_directory();
+create or replace function get_directory(p_limit integer default 200, p_offset integer default 0)
 returns table(
   id uuid, name text, dob date, district text, avatar_path text,
   last_seen_at timestamptz, distance_label text
@@ -602,6 +611,8 @@ declare
   my_district text;
   me_lat double precision;
   me_lng double precision;
+  safe_limit integer := least(greatest(coalesce(p_limit, 200), 1), 200);
+  safe_offset integer := greatest(coalesce(p_offset, 0), 0);
 begin
   if my_id is null then raise exception 'no matching profile'; end if;
   if not is_active_subscriber() then
@@ -639,19 +650,10 @@ begin
     end as distance_label
   from dists
   order by (dists.d_km is null) asc, dists.d_km asc, (dists.district = my_district) desc, dists.name asc
-  -- SCALE FIX: this query used to return literally every active,
-  -- complete profile with no cap — fine at today's size, but it would
-  -- get slower to load for everyone as the number of registered users
-  -- grows, since it always scans and ranks the whole table. 1000 is a
-  -- generous ceiling that changes nothing about what anyone sees right
-  -- now (closest/most relevant people still come first); it just stops
-  -- the query from being truly unbounded. If the app ever grows past
-  -- ~1000 registered people, revisit this with real pagination
-  -- (a "load more" button) rather than raising the number further.
-  limit 1000;
+  limit safe_limit offset safe_offset;
 end;
 $$;
-grant execute on function get_directory() to anon, authenticated;
+grant execute on function get_directory(integer, integer) to anon, authenticated;
 
 -- get_public_profiles: the ONLY way a client can look up another user's
 -- name/photo/last-seen (for chat headers, chat lists, status avatars,
