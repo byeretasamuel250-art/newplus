@@ -286,4 +286,3 @@ friends nearby") and `manifest.json`'s install description ("...as well
 meet new world here"). Both are now consistent with the rest of the
 site (`about.html`, `privacy.html`, `terms.html`), which already talked
 about jobs and gigs throughout. Nothing else in either file changed.
-
