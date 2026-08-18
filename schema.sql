@@ -35,6 +35,22 @@ alter table profiles add column if not exists pin_must_change boolean not null d
 -- long-pressing the bell icon on the directory page.
 alter table profiles add column if not exists push_muted boolean not null default false;
 
+-- ------------------------------------------------------------
+-- PERFORMANCE FIX (scale to 1000+ concurrent users): get_directory()
+-- (defined further down) filters on `is_active` and `profile_complete`
+-- every time it runs — once per directory load, once per "load more"
+-- page, for every user. Without an index covering that filter, Postgres
+-- has to scan every row in `profiles` and check both columns on each one,
+-- every single time. This partial index lets it jump straight to the
+-- rows that actually qualify instead. It's a partial index (not a full
+-- one) because most rows will match `is_active = true and
+-- profile_complete = true`, so a small, targeted index is far cheaper
+-- than a full one covering rows that never match anyway.
+-- ------------------------------------------------------------
+create index if not exists idx_profiles_active_complete
+  on profiles (id)
+  where is_active and profile_complete;
+
 -- ---------- SUBSCRIPTION REQUESTS (manual mobile-money payments) ----------
 create table if not exists subscription_requests (
   id uuid primary key default gen_random_uuid(),
