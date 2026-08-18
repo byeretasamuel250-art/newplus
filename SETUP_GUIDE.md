@@ -1,6 +1,6 @@
 # new+ — setup guide
 
-An app for meeting new people nearby: register, subscribe, browse who's
+An app for meeting new people nearby post or get a job or gig: register, subscribe, browse who's
 around, and chat — text, photos, and GIFs. Manual mobile-money
 subscription, same approach as prep+.
 
@@ -187,6 +187,31 @@ pg_cron ships enabled on Supabase's free tier as of 2026, but if your
 project doesn't have it, check **Database → Extensions** in the
 dashboard — the rest of `schema.sql` still runs fine either way, it's
 just this one cleanup job that needs pg_cron specifically.
+
+## Scale fix — supports 1000+ concurrent users, re-run schema.sql and re-upload index.html
+
+This update targets what actually limits how many people can be online at
+once, rather than just database size:
+
+- **`schema.sql`** adds an index so the directory page doesn't scan every
+  row in `profiles` on every load — as always, paste the whole file into
+  the SQL Editor and run it again; `create index if not exists` means
+  nothing existing is touched.
+- **`index.html`**: the ads banner and the statuses row used to update via
+  realtime subscriptions with no filter, which meant every ad edit or
+  status post was delivered to *every* connected user's browser at once —
+  fine at small scale, but the thing that actually caps concurrent users
+  once you're in the hundreds, since Supabase's Realtime plans cap and
+  bill by messages *delivered*, not events raised. Both now poll quietly
+  in the background instead (ads every 45s, statuses every 30s, and only
+  while the tab is actually visible) — updates take a little longer to
+  appear but no longer cost anything per connected user. The periodic
+  profile-refresh poll was also slowed down and made visibility-aware,
+  since it's just a fallback for the realtime profile channel, not the
+  primary path.
+
+None of this changes what anyone sees day-to-day — just re-upload
+`index.html` and re-run `schema.sql`.
 
 ## If you see a white screen
 
