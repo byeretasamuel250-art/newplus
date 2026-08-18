@@ -2059,6 +2059,7 @@ async function renderChat() {
   state.hasMoreMessages = false;
   state.loadingOlderMessages = false;
   state.hiddenMessageIds = new Set();
+  chatJumpUnread = 0;
   pickedChatImageBlobs = [];
   const other = state.otherPerson;
   const url = other ? avatarUrl(other.avatar_path) : null;
@@ -2071,7 +2072,12 @@ async function renderChat() {
         <div class="chat-status" id="chat-status">${chatStatusLabel(other)}</div>
       </div>
     </div>
-    <div class="chat-scroll" id="chat-scroll"><div class="center-loading"><div class="spinner"></div></div></div>
+    <div class="chat-body">
+      <div class="chat-scroll" id="chat-scroll"><div class="center-loading"><div class="spinner"></div></div></div>
+      <button class="scroll-bottom-btn" id="jump-to-latest-btn" style="display:none" onclick="jumpToLatestMessages()" title="Jump to latest messages">
+        ↓<span class="scroll-bottom-badge" id="jump-to-latest-badge" style="display:none"></span>
+      </button>
+    </div>
     <div id="chat-error"></div>
     <div id="reply-preview"></div>
     <div id="chat-image-preview"></div>
@@ -2089,6 +2095,9 @@ async function renderChat() {
   subscribeToMessages();
   document.getElementById("chat-scroll").addEventListener("scroll", (e) => {
     if (e.target.scrollTop < 60) loadOlderMessages();
+    const el = e.target;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) hideJumpToLatest();
+    else showJumpToLatest(0); // just reveal the button — 0 means "don't touch the unread count"
   });
   // CSS alone (user-select:none) doesn't reliably stop Android's long-press
   // "select text" gesture on every Chrome/Android version — block it at the
@@ -2518,7 +2527,12 @@ function renderMessageList() {
 // Adds messages to the end of the list without touching anything already
 // rendered — used for a new incoming/outgoing message so nothing else
 // (in particular, a currently-playing voice note) gets interrupted.
-function appendMessagesToList(newMessages) {
+//
+// opts.fromOther: true when this message came from the other person via
+// realtime (not my own just-sent message). If they're scrolled up reading
+// older messages when that happens, don't yank them down to the bottom —
+// just raise the jump-to-latest button with a count, same as any chat app.
+function appendMessagesToList(newMessages, opts = {}) {
   const scrollEl = document.getElementById("chat-scroll");
   if (!scrollEl) return;
   if (scrollEl.querySelector(".empty-state")) scrollEl.innerHTML = "";
@@ -2528,6 +2542,33 @@ function appendMessagesToList(newMessages) {
     newMessages.forEach(hydrateMediaForMessage);
   });
   if (wasNearBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
+  else if (opts.fromOther) showJumpToLatest(newMessages.length);
+}
+
+// ---------- JUMP TO LATEST (down arrow shown while scrolled up in history) ----------
+let chatJumpUnread = 0;
+function showJumpToLatest(newUnread) {
+  chatJumpUnread += newUnread;
+  const btn = document.getElementById("jump-to-latest-btn");
+  if (!btn) return;
+  btn.style.display = "flex";
+  const badge = document.getElementById("jump-to-latest-badge");
+  if (!badge) return;
+  if (chatJumpUnread > 0) { badge.textContent = chatJumpUnread > 9 ? "9+" : chatJumpUnread; badge.style.display = "inline-flex"; }
+  else { badge.style.display = "none"; }
+}
+function hideJumpToLatest() {
+  chatJumpUnread = 0;
+  const btn = document.getElementById("jump-to-latest-btn");
+  if (btn) btn.style.display = "none";
+  const badge = document.getElementById("jump-to-latest-badge");
+  if (badge) badge.style.display = "none";
+}
+function jumpToLatestMessages() {
+  const scrollEl = document.getElementById("chat-scroll");
+  if (!scrollEl) return;
+  scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
+  hideJumpToLatest();
 }
 
 // Adds older messages to the top (infinite-scroll-up) without touching
@@ -2812,7 +2853,7 @@ function subscribeToMessages() {
         // realtime echo of that same insert would otherwise show up twice.
         if (state.messages.some(m => m.id === payload.new.id)) return;
         state.messages.push(payload.new);
-        appendMessagesToList([payload.new]);
+        appendMessagesToList([payload.new], { fromOther: true });
         setOtherTyping(false); // a message arriving means they're done typing
       })
     .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages", filter: "conversation_id=eq." + state.conversation.id },
