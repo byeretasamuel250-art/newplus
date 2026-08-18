@@ -1,13 +1,14 @@
-# new+ — setup guide
+# newplus — setup guide
 
-An app for meeting new people nearby post or get a job or gig: register, subscribe, browse who's
-around, and chat — text, photos, and GIFs. Manual mobile-money
-subscription, same approach as prep+.
+A gig marketplace for Uganda: register, subscribe, post or browse gigs
+nearby, and message the poster directly to sort out the details — text,
+photos, and voice notes. Manual mobile-money subscription, same approach
+as prep+.
 
 **Files in this folder**
 - `index.html` — the user-facing app
 - `admin.html` — the admin dashboard (separate page, never linked from the user app)
-- `config.js` — where you paste your Supabase keys and (optional) Tenor GIF key and VAPID push key
+- `config.js` — where you paste your Supabase keys and (optional) VAPID push key
 - `style.css`, `shared.js` — shared design and logic, don't need editing
 - `schema.sql` — creates all the database tables, security rules, and helper functions
 
@@ -58,15 +59,7 @@ notified when the app isn't open. To turn it on:
    just stay off — nothing breaks, the toggle simply won't appear on the
    Edit Profile screen.
 
-## Step 6 — (Optional but recommended) Get a free Tenor key for GIFs
-
-1. Go to https://developers.google.com/tenor/guides/quickstart and follow
-   the free API key steps (no credit card needed).
-2. Paste the key into `config.js` as `TENOR_API_KEY`.
-3. If you skip this, the app still works fine — the GIF button just shows
-   a message saying GIFs aren't set up yet.
-
-## Step 7 — Create your admin login
+## Step 6 — Create your admin login
 
 1. **Authentication → Users → Add user** — enter your email + password, leave Auto Confirm on.
 2. **SQL Editor** → run (with your real email):
@@ -75,7 +68,7 @@ notified when the app isn't open. To turn it on:
    ```
 3. Open `admin.html` and log in.
 
-## Step 8 — Test locally
+## Step 7 — Test locally
 
 ```
 python3 -m http.server 8080
@@ -85,9 +78,9 @@ made up is fine for local testing), finish your profile with a photo,
 then register a *second* test account in a private/incognito window so
 you have two people to chat between. Subscribe both (as admin, approve
 the payment requests in `admin.html`), then message between them and try
-sending a photo and a GIF.
+sending a photo and a voice note.
 
-## Step 9 — Publish
+## Step 8 — Publish
 
 Same as prep+ — drag the folder onto **Netlify**, or push to **GitHub
 Pages**, or **Vercel**. User link is the root URL; keep `/admin.html`
@@ -128,7 +121,7 @@ extra setup, no third-party ad account needed.
 **A user's experience:** register (phone, PIN, date of birth, district)
 → finish profile (name, photo, optional location sharing) → subscribe →
 browse people sorted by distance (or district, if location isn't
-shared) → tap someone → chat with text, photos, and GIFs in real time.
+shared) → tap someone → chat with text, photos, and voice notes in real time.
 Anytime after that, they can go to **My profile → Edit details** to
 change their name, date of birth, district, or location sharing.
 
