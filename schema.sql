@@ -385,15 +385,60 @@ on conflict (id) do update set file_size_limit = excluded.file_size_limit, allow
 --
 -- Calls the deployed `send-push` edge function whenever a new
 -- message or notification is inserted.
---
--- Both the function (notify_send_push()) and the CREATE TRIGGER
--- statements that attach it to `messages`/`notifications` live
--- together further down, in the "Patch: add a shared secret to the
--- push-notification trigger" section — CREATE TRIGGER needs the
--- function to already exist, so they can't be split apart with the
--- function defined later than the trigger, the way earlier revisions
--- of this file had it.
 -- ============================================================
+create or replace function notify_send_push()
+returns trigger
+language plpgsql
+security definer
+as $$
+declare
+  recipient_id uuid;
+  recipient_muted boolean := false;
+begin
+  -- Figure out who the recipient is, so we can check their global mute
+  -- setting before bothering to send a push at all.
+  if TG_TABLE_NAME = 'messages' then
+    select case
+      when user_a = NEW.sender_id then user_b
+      when user_b = NEW.sender_id then user_a
+    end into recipient_id
+    from conversations where id = NEW.conversation_id;
+  elsif TG_TABLE_NAME = 'notifications' then
+    recipient_id := NEW.profile_id;
+  end if;
+
+  if recipient_id is not null then
+    select push_muted into recipient_muted from profiles where id = recipient_id;
+    if recipient_muted then
+      return NEW;
+    end if;
+  end if;
+
+  perform net.http_post(
+    url := 'https://tgpqzphfmhactykxahqn.supabase.co/functions/v1/send-push',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer sb_publishable_QTUByYlNoDQ8RoJ_usnAJw_p3VAVwLt'
+    ),
+    body := jsonb_build_object(
+      'type', 'INSERT',
+      'table', TG_TABLE_NAME,
+      'record', to_jsonb(NEW)
+    )
+  );
+  return NEW;
+end;
+$$;
+
+drop trigger if exists on_message_send_push on messages;
+create trigger on_message_send_push
+  after insert on messages
+  for each row execute function notify_send_push();
+
+drop trigger if exists on_notification_send_push on notifications;
+create trigger on_notification_send_push
+  after insert on notifications
+  for each row execute function notify_send_push();
 
 -- ============================================================
 -- Helpers
@@ -1838,20 +1883,6 @@ begin
 end;
 $$;
 
--- Trigger creation lives here (not up where these triggers were originally
--- introduced) because CREATE TRIGGER needs notify_send_push() to already
--- exist at the point it runs, and this is the only place in the file that
--- definition exists now.
-drop trigger if exists on_message_send_push on messages;
-create trigger on_message_send_push
-  after insert on messages
-  for each row execute function notify_send_push();
-
-drop trigger if exists on_notification_send_push on notifications;
-create trigger on_notification_send_push
-  after insert on notifications
-  for each row execute function notify_send_push();
-
 -- (the two triggers that call this function already exist and don't need
 -- to be re-created — replacing the function's body is enough)
 -- ============================================================
@@ -2096,3 +2127,71 @@ drop trigger if exists trg_broadcast_directory_change on profiles;
 create trigger trg_broadcast_directory_change
   after insert or update or delete on profiles
   for each row execute function broadcast_directory_change();
+
+-- ============================================================
+-- Patch: global new-message alert doesn't scale past a few hundred
+-- concurrent users
+-- ------------------------------------------------------------
+-- index.html's "ping + toast while you're elsewhere in the app" feature
+-- listens with postgres_changes for INSERT on the whole `messages`
+-- table, and every single online person is subscribed to their own copy
+-- of that listener. `messages_select_participant` below means nobody
+-- actually RECEIVES a message that isn't theirs -- so this was never a
+-- privacy leak -- but Realtime still has to evaluate that RLS check
+-- against every one of the (up to 1000+) connected listeners for every
+-- single message anyone sends, anywhere in the app. That per-listener
+-- check is the actual cost that grows with concurrent users -- same
+-- shape of problem as the directory fix above, just paid in server load
+-- instead of leaked data.
+--
+-- Fix: same approach as broadcast_directory_change() -- a trigger sends
+-- a small, targeted Broadcast event directly to a channel named after
+-- the ONE recipient who needs it (global-messages-<their profile id>),
+-- so Realtime never has to check anyone else at all. The payload
+-- deliberately carries only non-sensitive routing info (conversation_id,
+-- sender_id, message_id) -- never the message body, photo, or voice
+-- note itself -- exactly what index.html's toast already used.
+--
+-- NOTE: the per-conversation channel used inside an open chat (see
+-- "conversation-<id>" in index.html) is untouched by this -- it's
+-- already filtered to one conversation_id and only ever has the 2
+-- participants subscribed, so it was never part of this problem.
+-- ============================================================
+create or replace function broadcast_new_message()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  recipient_id uuid;
+begin
+  select case when c.user_a = NEW.sender_id then c.user_b else c.user_a end
+    into recipient_id
+    from conversations c
+    where c.id = NEW.conversation_id;
+
+  if recipient_id is not null then
+    perform realtime.send(
+      jsonb_build_object(
+        'conversation_id', NEW.conversation_id,
+        'sender_id', NEW.sender_id,
+        'message_id', NEW.id
+      ),
+      'new_message',
+      'global-messages-' || recipient_id::text,
+      false
+    );
+  end if;
+
+  return NEW;
+exception when others then
+  -- a broadcast hiccup must never block the actual message insert
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_broadcast_new_message on messages;
+create trigger trg_broadcast_new_message
+  after insert on messages
+  for each row execute function broadcast_new_message();
