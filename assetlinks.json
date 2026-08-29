@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.newplus.twa",
+        "sha256_cert_fingerprints": ["EC:0F:D3:9D:94:69:94:6F:92:F1:28:7F:FD:27:8A:90:A5:2A:80:C0:49:3E:7C:4B:FC:B5:30:DA:46:00:4E:C9"]
+      }
+    }]
