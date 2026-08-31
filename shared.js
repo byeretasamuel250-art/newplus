@@ -225,3 +225,45 @@ document.addEventListener("keydown", (e) => {
     (e.metaKey && e.altKey && key === "I"); // Mac devtools
   if (blocked) e.preventDefault();
 });
+
+// ============================================================
+// Auto-dismiss inline form/operation error banners.
+// index.html has ~35 places that show a "you did something wrong"
+// message (wrong PIN, missing field, failed upload, etc.) by setting
+// innerHTML directly on a dedicated container, rather than going
+// through showToast() — e.g. login-error, reg-error, forgot-error,
+// pinchange-error, cp-error, ep-error, profile-avatar-error,
+// status-error, chat-error, pesapal-error. None of those ever cleared
+// themselves; they only disappeared once the same form was
+// resubmitted (which already does `errEl.innerHTML = ""` at the top
+// of each handler) or the screen was left.
+//
+// Rather than edit each of those ~35 call sites individually (real
+// risk of missing one, or breaking a `return;` right after it), this
+// watches for any element whose id ends in "-error" gaining content,
+// and clears that one element again after a few seconds — the same
+// auto-dismiss behavior showToast() already has, applied consistently
+// everywhere this "-error" naming convention is used.
+//
+// This deliberately does NOT touch the couple of banners elsewhere in
+// index.html that are meant to persist (the "account deactivated"
+// screen, the "payment submitted, waiting for confirmation" note) —
+// neither of those live inside an id="...-error" container, so they
+// fall outside what this observer ever looks at.
+// ============================================================
+(function watchInlineErrorBanners() {
+  const AUTO_CLEAR_MS = 3000;
+  const timers = new WeakMap();
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      const el = m.target;
+      if (!el || el.nodeType !== 1 || !el.id || !el.id.endsWith("-error")) continue;
+      if (!el.textContent.trim()) continue; // was just cleared, nothing to schedule
+      clearTimeout(timers.get(el));
+      timers.set(el, setTimeout(() => {
+        if (el.isConnected) el.innerHTML = "";
+      }, AUTO_CLEAR_MS));
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+})();
