@@ -2395,7 +2395,7 @@ async function renderChatList() {
     .or(`user_a.eq.${me},user_b.eq.${me}`).order("last_message_at", { ascending: false });
   const listEl = document.getElementById("chat-list");
   if (error) { listEl.innerHTML = `<div class="error-banner">${escapeHtml(error.message)}</div>`; return; }
-  if (!convos.length) { listEl.innerHTML = `<div class="empty-state">No chats yet, say hello to someone in the directory</div>`; return; }
+  if (!convos.length) { listEl.innerHTML = `<div class="empty-state">No chats yet, Sooka Osasule chief</div>`; return; }
 
   const otherIds = convos.map(c => (c.user_a === me ? c.user_b : c.user_a));
   const [{ data: people }, { data: unreadRows }] = await Promise.all([
