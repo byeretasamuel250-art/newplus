@@ -2587,7 +2587,7 @@ function renderMessageList() {
   const scrollEl = document.getElementById("chat-scroll");
   if (!scrollEl) return;
   if (!state.messages.length) {
-    scrollEl.innerHTML = `<div class="empty-state">Say hello 👋</div>`;
+    scrollEl.innerHTML = `<div class="empty-state">Gamba nogu</div>`;
     return;
   }
   scrollEl.innerHTML = state.messages.map(messageRowHtml).join("");
