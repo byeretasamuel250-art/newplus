@@ -2252,22 +2252,22 @@ const renderEditProfile = safeRender(async function () {
     <select id="ep-district">${DISTRICTS.map(d => `<option value="${d}" ${d === p.district ? "selected" : ""}>${d}</option>`).join("")}</select>
     <label style="display:flex;align-items:center;gap:8px;margin-top:18px">
       <input type="checkbox" id="ep-share-location" style="width:auto" ${p.share_location ? "checked" : ""} onchange="onShareLocationToggle(event)">
-      <span style="color:var(--ink);font-size:14px">Share my location, helps show people nearby (approximate distance only, never your exact spot)</span>
+      <span style="color:var(--ink);font-size:14px">See distance between you and (Boss, worker or friend)</span>
     </label>
     <div id="location-status" class="hint" style="margin-top:6px">${pickedCoords ? "Location ready." : ""}</div>
     ${pushSupported() ? `
     <label style="display:flex;align-items:center;gap:8px;margin-top:18px">
       <input type="checkbox" id="ep-push" style="width:auto" onchange="onPushToggle(event)">
-      <span style="color:var(--ink);font-size:14px">Push notifications on this device, get alerted about new messages even when the app is closed</span>
+      <span style="color:var(--ink);font-size:14px">get notified</span>
     </label>
     <div id="push-status" class="hint" style="margin-top:6px"></div>
     ` : ""}
-    <label for="ep-current-pin" style="margin-top:26px">Current PIN (only needed if changing your PIN)</label>
+    <label for="ep-current-pin" style="margin-top:26px">Current PIN</label>
     <div class="pin-field">
       <input id="ep-current-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
       <button type="button" class="pin-eye-btn" onclick="togglePinVisibility('ep-current-pin', this)" aria-label="Show PIN">👁</button>
     </div>
-    <label for="ep-new-pin">New PIN (leave blank to keep your current PIN)</label>
+    <label for="ep-new-pin">New PIN</label>
     <div class="pin-field">
       <input id="ep-new-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
       <button type="button" class="pin-eye-btn" onclick="togglePinVisibility('ep-new-pin', this)" aria-label="Show PIN">👁</button>
