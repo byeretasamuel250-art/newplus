@@ -984,7 +984,7 @@ function renderForgotPin() {
       </div>
       <label for="fp-district">District / town on your account</label>
       <select id="fp-district">${DISTRICTS.map(d => `<option value="${d}">${d}</option>`).join("")}</select>
-      <label for="fp-recovery-code">Secret recovery code (if you set one)</label>
+      <label for="fp-recovery-code">Secret code</label>
       <input id="fp-recovery-code" type="text" maxlength="20" placeholder="CODE">
       <button class="btn-primary" onclick="doRequestPinReset()">Request reset</button>
       <button class="btn-link" onclick="renderLogin()">← Back to log in</button>
