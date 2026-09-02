@@ -895,7 +895,7 @@ function togglePinVisibility(inputId, btn) {
     return;
   }
   input.type = "text";
-  btn.textContent = "🙈";
+  btn.textContent = "^";
   btn.setAttribute("aria-label", "Hide PIN");
   input._pinHideTimer = setTimeout(() => {
     input.type = "password";
