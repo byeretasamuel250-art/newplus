@@ -2287,7 +2287,7 @@ const renderEditProfile = safeRender(async function () {
       <button type="button" class="pin-eye-btn" onclick="togglePinVisibility('ep-new-pin', this)" aria-label="Show PIN">👁</button>
     </div>
     <label for="ep-recovery-code" style="margin-top:26px">Secret recovery code (optional)</label>
-    <p class="hint" style="margin:2px 0 8px">Used only if you ever forget your PIN. Choose 5+ letters/numbers and remember it well — nobody, including us, can recover it if you forget it too. Leave blank and tap Save to remove an existing code.</p>
+    <p class="hint" style="margin:2px 0 8px"> ENSURE you have set your SECRET code.</p>
     <input id="ep-recovery-code" type="text" maxlength="20" placeholder="e.g. sunset42">
     <div id="recovery-code-status" class="hint" style="margin-top:6px"></div>
     <button class="btn-secondary" style="margin-top:8px" onclick="saveRecoveryCode()">Save recovery code</button>
