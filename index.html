@@ -974,7 +974,7 @@ function renderForgotPin() {
     <div class="login-shine">
       ${BRAND_HTML}
       <h2>Forgot your PIN?</h2>
-      <p>Enter your phone number and answer a couple of questions about your account, it helps an admin confirm it's really you before they get in touch.</p>
+      <p>SET SECRET CODE</p>
       <div id="forgot-error"></div>
       <label for="fp-phone">Phone number</label>
       <input id="fp-phone" type="tel" inputmode="numeric" maxlength="10" placeholder="07XXXXXXXX">
@@ -987,7 +987,7 @@ function renderForgotPin() {
       <label for="fp-district">District / town on your account</label>
       <select id="fp-district">${DISTRICTS.map(d => `<option value="${d}">${d}</option>`).join("")}</select>
       <label for="fp-recovery-code">Secret recovery code (if you set one)</label>
-      <input id="fp-recovery-code" type="text" maxlength="20" placeholder="Leave blank if you never set one">
+      <input id="fp-recovery-code" type="text" maxlength="20" placeholder="CODE">
       <button class="btn-primary" onclick="doRequestPinReset()">Request reset</button>
       <button class="btn-link" onclick="renderLogin()">← Back to log in</button>
     </div>
@@ -2304,7 +2304,7 @@ const renderEditProfile = safeRender(async function () {
       <input id="ep-new-pin" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
       <button type="button" class="pin-eye-btn" onclick="togglePinVisibility('ep-new-pin', this)" aria-label="Show PIN">${EYE_ICON_SVG}</button>
     </div>
-    <label for="ep-recovery-code" style="margin-top:26px">Secret recovery code (optional)</label>
+    <label for="ep-recovery-code" style="margin-top:26px">Secret code</label>
     <p class="hint" style="margin:2px 0 8px"> ENSURE you have set your SECRET code.</p>
     <input id="ep-recovery-code" type="text" maxlength="20" placeholder="e.g. sunset42">
     <div id="recovery-code-status" class="hint" style="margin-top:6px"></div>
