@@ -1583,7 +1583,7 @@ function renderPeopleRows(term = "") {
   }
 
   if (!matched.length) {
-    listEl.innerHTML = `<div class="empty-state">No matches for "${escapeHtml(term.trim())}"</div>` + rest.map(personRowHtml).join("") + loadMoreHtml;
+    listEl.innerHTML = `<div class="empty-state">None yet from "${escapeHtml(term.trim())}"</div>` + rest.map(personRowHtml).join("") + loadMoreHtml;
     return;
   }
 
