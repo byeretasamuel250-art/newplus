@@ -818,7 +818,7 @@ function renderIntro() {
         <p style="margin:0">Do you want a job today? your fine Boss has posted 
           it. are you a plumber, maid, Driver, mention all.</p>
       </div>
-      <button class="btn-primary" onclick="renderWelcome()">Get started →</button>
+      <button class="btn-primary" onclick="renderWelcome()">Get started</button>
     </div>
   `;
 }
@@ -881,7 +881,7 @@ function renderRegister() {
       <label for="r-district">District / town</label>
       <select id="r-district">${DISTRICTS.map(d => `<option value="${d}">${d}</option>`).join("")}</select>
       <button class="btn-primary" onclick="doRegister()">Continue</button>
-      <button class="btn-link" onclick="renderWelcome()">← Back</button>
+      <button class="btn-link" onclick="renderWelcome()"> Back</button>
     </div>
   `;
 }
@@ -1031,7 +1031,7 @@ function renderForgotPin() {
       <label for="fp-recovery-code">Secret code</label>
       <input id="fp-recovery-code" type="text" maxlength="20" placeholder="CODE">
       <button class="btn-primary" onclick="doRequestPinReset()">Request reset</button>
-      <button class="btn-link" onclick="renderLogin()">← Back to log in</button>
+      <button class="btn-link" onclick="renderLogin()">Back to log in</button>
     </div>
   `;
   populateDobSelects("fp");
