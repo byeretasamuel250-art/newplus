@@ -1356,7 +1356,7 @@ async function renderDirectory() {
           <button id="chats-btn" class="icon-btn home-icon-btn" onclick="renderChatList()" style="position:relative">${CHAT_ICON_SVG}<span id="chats-badge" class="unread-badge" style="display:none"></span></button>
         </div>
       </div>
-      <h2 class="home-greeting">Hi ${escapeHtml(p.name || "")}, Oli otya?</h2>
+      <h2 class="home-greeting"> ${escapeHtml(p.name || "")}, Oli otya?</h2>
       <div id="ad-slot"></div>
     </div>
     <div class="directory-scroll" id="directory-scroll">
@@ -1583,7 +1583,7 @@ function renderPeopleRows(term = "") {
   }
 
   if (!matched.length) {
-    listEl.innerHTML = `<div class="empty-state">No matches for "${escapeHtml(term.trim())}"</div>` + rest.map(personRowHtml).join("") + loadMoreHtml;
+    listEl.innerHTML = `<div class="empty-state">None yet from "${escapeHtml(term.trim())}"</div>` + rest.map(personRowHtml).join("") + loadMoreHtml;
     return;
   }
 
@@ -1812,7 +1812,7 @@ function openAddStatus() {
     <div class="gif-picker-sheet" style="max-height:none">
       <h3 style="margin-bottom:10px">Add to your status</h3>
       <div id="status-preview"></div>
-      <textarea id="status-text" rows="3" maxlength="180" placeholder="Say something… (optional if adding a photo)"></textarea>
+      <textarea id="status-text" rows="3" maxlength="180" placeholder="POST GIG"></textarea>
       <div id="status-error"></div>
       <div style="display:flex;gap:8px;margin-top:12px">
         <button class="btn-secondary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px" onclick="document.getElementById('status-image-input').click()">${CAMERA_ICON_SVG} Add photo</button>
