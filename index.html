@@ -1303,7 +1303,7 @@ function renderSubscribe() {
   const pendingNote = isPending
     ? `<div class="error-banner" style="background:var(--gold-dim);border-color:var(--gold);color:var(--gold)">Payment submitted, waiting for confirmation. This updates automatically once it's approved.</div>` : "";
   root().innerHTML = `
-    <div class="top-bar">${BRAND_HTML}<button class="icon-btn" onclick="routeFromProfile()">← Back</button></div>
+    <div class="top-bar">${BRAND_HTML}<button class="icon-btn" onclick="routeFromProfile()">Back</button></div>
     <h2>Unlock newplus.app</h2>
     <p>UGX. 2000 / month & grab the gigs</p>
     ${pendingNote}
@@ -2195,7 +2195,7 @@ function renderProfile() {
   const displayStatus = reallyActive ? "active" : (p.subscription_status === "active" ? "expired" : p.subscription_status);
   root().innerHTML = `
     <div class="directory-static">
-      <div class="top-bar"><button class="icon-btn" onclick="renderDirectory()">← Back</button><button class="icon-btn" onclick="logout()">Log out</button></div>
+      <div class="top-bar"><button class="icon-btn" onclick="renderDirectory()">Back</button><button class="icon-btn" onclick="logout()">Log out</button></div>
       <h2>My profile</h2>
     </div>
     <div class="directory-scroll">
