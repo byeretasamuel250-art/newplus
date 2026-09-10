@@ -42,7 +42,7 @@ const BASE_URL = PESAPAL_ENV === "live"
 // Where Pesapal sends the user's browser back to after they pay (or cancel).
 const CALLBACK_URL = "https://newplus.app/payment-complete.html";
 
-const SUBSCRIPTION_AMOUNT = 2000; // UGX, matches the existing manual flow
+const SUBSCRIPTION_AMOUNT = 5000; // UGX, matches the existing manual flow
 
 const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
