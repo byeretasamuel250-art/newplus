@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>newplus admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="houses.css">
+</head>
+<body class="admin-wrap">
+<div id="app"><div class="center-loading">Loading…</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+let sb;
+const state = { houses: [], editing: null, items: [], removed: [] };
+const root = () => document.getElementById("app");
+const photoUrl = path => sb.storage.from("houses").getPublicUrl(path).data.publicUrl;
+const fmtRent = n => "UGX " + Number(n).toLocaleString("en-UG");
+
+window.addEventListener("DOMContentLoaded", () => {
+  try { sb = initSupabase(); } catch (e) { return; }
+  boot();
+});
+
+const boot = safeRender(async function () {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session && session.user.email) {
+    const { data: isAdmin } = await sb.rpc("is_admin");
+    if (isAdmin) return renderList();
+    await sb.auth.signOut();
+  }
+  renderLogin();
+});
+
+function renderLogin() {
+  root().innerHTML = `
+    <div class="brand">newplus<span class="brand-dot">.</span> <span style="font-size:14px;color:var(--ink-muted);font-family:var(--font-body)">admin</span></div>
+    <p>Staff access only.</p>
+    <div id="login-error"></div>
+    <label for="a-email">Email</label>
+    <input id="a-email" type="email" autocomplete="username">
+    <label for="a-pass">Password</label>
+    <input id="a-pass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn-primary" onclick="doLogin()" style="margin-top:18px">Log in</button>`;
+}
+
+const doLogin = safeRender(async function () {
+  const email = document.getElementById("a-email").value.trim();
+  const password = document.getElementById("a-pass").value;
+  const err = document.getElementById("login-error");
+  err.innerHTML = "";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { err.innerHTML = `<div class="error-banner">Invalid email or password.</div>`; return; }
+  const { data: isAdmin } = await sb.rpc("is_admin");
+  if (!isAdmin) {
+    await sb.auth.signOut();
+    err.innerHTML = `<div class="error-banner">That account isn't on the admin list. Add its email to admin_allowlist in Supabase.</div>`;
+    return;
+  }
+  renderList();
+});
+
+const logout = safeRender(async function () { await sb.auth.signOut(); renderLogin(); });
+
+// ---------- LIST ----------
+const renderList = safeRender(async function () {
+  const { data, error } = await sb.from("houses").select("*").order("created_at", { ascending: false });
+  if (error) throw error;
+  state.houses = data || [];
+  root().innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="brand" style="margin:0">newplus<span class="brand-dot">.</span> <span style="font-size:14px;color:var(--ink-muted);font-family:var(--font-body)">admin</span></div>
+      <div class="a-actions">
+        <button class="btn-primary btn-small" onclick="openForm(null)">+ Add house</button>
+        <button class="btn-secondary btn-small" onclick="logout()">Log out</button>
+      </div>
+    </div>
+    <p style="color:var(--ink-muted)">${state.houses.length} house${state.houses.length === 1 ? "" : "s"} uploaded</p>
+    <div id="rows">${state.houses.map(rowHtml).join("") || `<div class="empty-box">No houses yet. Click “+ Add house”.</div>`}</div>`;
+  root().querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => openForm(b.dataset.edit)));
+  root().querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", () => toggleAvail(b.dataset.toggle)));
+  root().querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => removeHouse(b.dataset.del)));
+});
+
+function rowHtml(h) {
+  const first = (h.image_paths || [])[0];
+  const where = [h.village, h.area, h.district].filter(Boolean).join(", ");
+  return `
+    <div class="a-row">
+      ${first ? `<img src="${escapeHtml(photoUrl(first))}" alt="">` : `<img alt="" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">`}
+      <div class="info">
+        <b>${escapeHtml(h.title)}</b>
+        <span>${escapeHtml(where)}</span><br>
+        <span>${escapeHtml(fmtRent(h.rent_ugx))}${h.house_type ? " · " + escapeHtml(h.house_type) : ""} · ${(h.image_paths || []).length} photo(s) ${h.is_available ? "" : `· <span class="badge-off">HIDDEN</span>`}</span>
+      </div>
+      <div class="a-actions">
+        <button class="btn-secondary btn-small" data-edit="${escapeHtml(h.id)}">Edit</button>
+        <button class="btn-secondary btn-small" data-toggle="${escapeHtml(h.id)}">${h.is_available ? "Hide" : "Show"}</button>
+        <button class="btn-danger btn-small" data-del="${escapeHtml(h.id)}">Delete</button>
+      </div>
+    </div>`;
+}
+
+const toggleAvail = safeRender(async function (id) {
+  const h = state.houses.find(x => x.id === id);
+  const { error } = await sb.from("houses").update({ is_available: !h.is_available }).eq("id", id);
+  if (error) throw error;
+  renderList();
+});
+
+const removeHouse = safeRender(async function (id) {
+  const h = state.houses.find(x => x.id === id);
+  if (!confirm(`Delete "${h.title}" and all its photos? This cannot be undone.`)) return;
+  if ((h.image_paths || []).length) await sb.storage.from("houses").remove(h.image_paths);
+  const { error } = await sb.from("houses").delete().eq("id", id);
+  if (error) throw error;
+  renderList();
+});
+
+// ---------- ADD / EDIT FORM ----------
+const TYPE_SUGGESTIONS = ["Single room", "Self-contained", "Double room", "1 bedroom", "2 bedroom", "3 bedroom", "4 bedroom", "Bungalow", "Apartment", "Duplex", "Maisonette", "Hostel", "Shop / Commercial"];
+
+function datalist(id, vals) {
+  const clean = [...new Set(vals.map(v => (v || "").trim()).filter(Boolean))].sort();
+  return `<datalist id="${id}">${clean.map(v => `<option value="${escapeHtml(v)}">`).join("")}</datalist>`;
+}
+const existing = field => state.houses.map(h => h[field]);
+
+function openForm(id) {
+  const h = id ? state.houses.find(x => x.id === id) : null;
+  state.editing = h;
+  // one ordered list of photos: the FIRST one is the main photo clients see on the card
+  state.items = h ? (h.image_paths || []).map(p => ({ path: p, url: photoUrl(p) })) : [];
+  state.removed = [];
+  root().innerHTML = `
+    <div class="brand">${h ? "Edit house" : "Add house"}</div>
+    <div id="form-error"></div>
+    <div class="a-grid">
+      <div><label>Title</label><input id="f-title" placeholder="e.g. Spacious house with fenced compound" value="${escapeHtml(h?.title || "")}"></div>
+      <div><label>Rent per month (UGX)</label><input id="f-rent" type="number" inputmode="numeric" min="0" placeholder="e.g. 600000" value="${h ? escapeHtml(String(h.rent_ugx)) : ""}"></div>
+      <div><label>House type</label><input id="f-type" list="dl-type" placeholder="e.g. Self-contained" value="${escapeHtml(h?.house_type || "")}">${datalist("dl-type", [...TYPE_SUGGESTIONS, ...existing("house_type")])}</div>
+      <div><label>Bedrooms (optional)</label><input id="f-beds" type="number" inputmode="numeric" min="0" value="${h?.bedrooms ?? ""}"></div>
+      <div><label>District</label><input id="f-district" list="dl-district" placeholder="e.g. Wakiso" value="${escapeHtml(h?.district || "")}">${datalist("dl-district", existing("district"))}</div>
+      <div><label>Area</label><input id="f-area" list="dl-area" placeholder="e.g. Naalya" value="${escapeHtml(h?.area || "")}">${datalist("dl-area", existing("area"))}</div>
+      <div><label>Village (optional)</label><input id="f-village" list="dl-village" placeholder="e.g. Kyanja" value="${escapeHtml(h?.village || "")}">${datalist("dl-village", existing("village"))}</div>
+    </div>
+    <label>Description (optional)</label>
+    <textarea id="f-desc" rows="4" placeholder="Water, power, security, deposit, etc.">${escapeHtml(h?.description || "")}</textarea>
+    <label>Photos <span id="photo-count" style="font-weight:500"></span></label>
+    <div id="thumbs" class="thumb-row"></div>
+    <input id="f-files" type="file" accept="image/*" multiple style="margin-top:10px">
+    <div class="hint" style="margin-top:6px">Add as many photos as you like, you can pick many at once and come back later to add more. The photo marked MAIN is the one clients see first. Tap “Make main” on any photo to change it.</div>
+    <div class="a-actions" style="margin-top:18px">
+      <button id="save-btn" class="btn-primary" onclick="saveHouse()">Save house</button>
+      <button class="btn-secondary" onclick="renderList()">Cancel</button>
+    </div>`;
+  document.getElementById("f-files").addEventListener("change", e => {
+    for (const f of e.target.files) state.items.push({ file: f, url: URL.createObjectURL(f) });
+    e.target.value = "";
+    renderThumbs();
+  });
+  renderThumbs();
+}
+
+function renderThumbs() {
+  const el = document.getElementById("thumbs");
+  document.getElementById("photo-count").textContent = state.items.length ? `(${state.items.length})` : "";
+  el.innerHTML = state.items.map((it, i) => `
+    <div class="thumb">
+      <img src="${escapeHtml(it.url)}" alt="">
+      <button type="button" class="rm" data-rm="${i}" aria-label="Remove photo">×</button>
+      ${i === 0 ? `<span class="main-tag">MAIN</span>` : `<button type="button" class="make-main" data-main="${i}">Make main</button>`}
+    </div>`).join("") || `<span class="hint" style="margin:0">No photos yet.</span>`;
+  el.querySelectorAll("[data-rm]").forEach(b => b.addEventListener("click", () => {
+    const [it] = state.items.splice(Number(b.dataset.rm), 1);
+    if (it.path) state.removed.push(it.path);
+    renderThumbs();
+  }));
+  el.querySelectorAll("[data-main]").forEach(b => b.addEventListener("click", () => {
+    const [it] = state.items.splice(Number(b.dataset.main), 1);
+    state.items.unshift(it);
+    renderThumbs();
+  }));
+}
+
+// Shrink photos to max 1600px JPEG before upload (sharp enough to look good, small enough to load fast)
+function compress(file, max = 1600, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => { URL.revokeObjectURL(url); b ? resolve(b) : reject(new Error("Could not process a photo.")); }, "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("One of the files is not a valid image.")); };
+    img.src = url;
+  });
+}
+
+const saveHouse = safeRender(async function () {
+  const errEl = document.getElementById("form-error");
+  errEl.innerHTML = "";
+  const v = id => document.getElementById(id).value.trim();
+  const title = v("f-title"), district = v("f-district"), area = v("f-area"), village = v("f-village");
+  const rent = v("f-rent"), beds = v("f-beds"), description = v("f-desc"), houseType = v("f-type");
+  if (!title || !district || !area || rent === "") {
+    errEl.innerHTML = `<div class="error-banner">Please fill in title, rent, district and area.</div>`;
+    return;
+  }
+  const btn = document.getElementById("save-btn");
+  btn.disabled = true;
+  try {
+    const id = state.editing?.id || crypto.randomUUID();
+    const total = state.items.filter(it => it.file).length;
+    let done = 0;
+    const finalPaths = [];
+    for (let i = 0; i < state.items.length; i++) {      // keeps the order you chose
+      const it = state.items[i];
+      if (it.path) { finalPaths.push(it.path); continue; }
+      done++;
+      btn.textContent = `Uploading photo ${done} of ${total}…`;
+      const blob = await compress(it.file);
+      const path = `${id}/${Date.now()}-${i}.jpg`;
+      const { error } = await sb.storage.from("houses").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" });
+      if (error) throw error;
+      it.path = path;                                   // so a retry after an error won't upload it twice
+      finalPaths.push(path);
+    }
+    btn.textContent = "Saving…";
+    const row = {
+      title, district, area, village: village || null, house_type: houseType || null,
+      rent_ugx: Number(rent), bedrooms: beds === "" ? null : Number(beds),
+      description: description || null, image_paths: finalPaths
+    };
+    const { error } = state.editing
+      ? await sb.from("houses").update(row).eq("id", id)
+      : await sb.from("houses").insert({ id, ...row });
+    if (error) throw error;
+    if (state.removed.length) await sb.storage.from("houses").remove(state.removed);
+    renderList();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Save house";
+    const msg = /house_type/.test(e.message || "") ? "The database needs one small update first: run houses_schema.sql again in Supabase (SQL Editor)." : (e.message || "Could not save. Please try again.");
+    errEl.innerHTML = `<div class="error-banner">${escapeHtml(msg)}</div>`;
+  }
+});
+</script>
+</body>
+</html>

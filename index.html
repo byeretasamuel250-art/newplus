@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>newplus.app: Houses for Rent in Uganda</title>
+<meta name="description" content="Browse houses for rent in Uganda by district, area and village. See photos and chat with us directly on WhatsApp.">
+<link rel="canonical" href="https://newplus.app/">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#FFFDF5">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="houses.css">
+</head>
+<body>
+<div id="app"><div class="center-loading">Loading…</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+let sb;
+const state = { houses: [], district: "all", search: "" };
+const root = () => document.getElementById("app");
+const BRAND_HTML = `<div class="brand">newplus<span class="brand-dot">.</span></div>`;
+
+window.addEventListener("DOMContentLoaded", () => {
+  try { sb = initSupabase(); } catch (e) { return; }
+  renderIntro();
+});
+
+function renderIntro() {
+  root().innerHTML = `
+    ${BRAND_HTML}
+    <div class="intro-screen">
+      <div class="intro-icons">
+        <div class="intro-icon" style="font-size:28px">🏠</div>
+        <div class="intro-icon" style="font-size:28px">🏡</div>
+        <div class="intro-icon" style="font-size:28px">🏘️</div>
+        <div class="intro-icon" style="font-size:28px">🔑</div>
+      </div>
+      <h1 class="intro-headline">Looking for a house to rent? We have it.</h1>
+      <p class="intro-subhead">Browse houses by district, area and village. See the photos, pick the one you like, and chat with us directly on WhatsApp.</p>
+      <button class="btn-primary" onclick="openListings()">Get started</button>
+    </div>`;
+}
+
+const openListings = safeRender(async function () {
+  root().innerHTML = `${BRAND_HTML}<div class="center-loading">Loading houses…</div>`;
+  const { data, error } = await sb.from("houses").select("*").order("created_at", { ascending: false });
+  if (error) throw error;
+  state.houses = (data || []).filter(h => h.is_available);
+  renderListings();
+});
+
+// ---------- helpers ----------
+const norm = s => (s || "").trim().replace(/\s+/g, " ");
+const key = s => norm(s).toLowerCase();
+const photoUrl = path => sb.storage.from("houses").getPublicUrl(path).data.publicUrl;
+const fmtRent = n => "UGX " + Number(n).toLocaleString("en-UG");
+const whereOf = h => [h.village, h.area, h.district].map(norm).filter(Boolean).join(", ");
+const bedsText = h => (h.bedrooms === null || h.bedrooms === undefined || h.bedrooms === "") ? "" : `${h.bedrooms} bedroom${h.bedrooms == 1 ? "" : "s"}`;
+const typeText = h => key(`${h.house_type || ""} ${bedsText(h)}`);
+
+// ---------- search: best matches first ----------
+function searchTokens() { return key(state.search).split(" ").filter(Boolean); }
+
+function matchScore(h, tokens) {
+  const fields = [
+    [key(h.area), 10], [key(h.village), 9], [key(h.district), 8],
+    [typeText(h), 7], [key(h.title), 5], [key(h.description), 2]
+  ];
+  let hit = 0, score = 0;
+  for (const t of tokens) {
+    let best = 0;
+    for (const [text, w] of fields) {
+      if (!text) continue;
+      let s = 0;
+      if (text === t) s = w + 3;
+      else if (text.startsWith(t)) s = w + 2;
+      else if (text.split(" ").some(word => word.startsWith(t))) s = w + 1;
+      else if (text.includes(t)) s = w;
+      if (s > best) best = s;
+    }
+    if (best) { hit++; score += best; }
+  }
+  return { hit, score };
+}
+
+function inDistrict(h) { return state.district === "all" || key(h.district) === state.district; }
+
+// district -> area -> village -> [houses], matching names without caring about capital letters
+function groupHouses(list) {
+  const districts = new Map();
+  for (const h of list) {
+    const dk = key(h.district), ak = key(h.area), vk = key(h.village) || "_";
+    if (!districts.has(dk)) districts.set(dk, { name: norm(h.district), areas: new Map() });
+    const d = districts.get(dk);
+    if (!d.areas.has(ak)) d.areas.set(ak, { name: norm(h.area), villages: new Map() });
+    const a = d.areas.get(ak);
+    if (!a.villages.has(vk)) a.villages.set(vk, { name: norm(h.village), houses: [] });
+    a.villages.get(vk).houses.push(h);
+  }
+  const byName = (x, y) => x.name.localeCompare(y.name);
+  return [...districts.values()].sort(byName).map(d => ({
+    name: d.name,
+    areas: [...d.areas.values()].sort(byName).map(a => ({
+      name: a.name,
+      villages: [...a.villages.values()].sort(byName)
+    }))
+  }));
+}
+
+// ---------- listings screen ----------
+function renderListings() {
+  const allDistricts = [...new Map(state.houses.map(h => [key(h.district), norm(h.district)])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  root().innerHTML = `
+    <div class="top-bar">
+      ${BRAND_HTML}
+      <input id="search" type="search" placeholder="Search area or type, e.g. Naalya, self-contained, 2 bedroom…" value="${escapeHtml(state.search)}">
+      <div class="chip-row">
+        <button class="chip ${state.district === "all" ? "active" : ""}" data-district="all">All districts</button>
+        ${allDistricts.map(([k, name]) => `<button class="chip ${state.district === k ? "active" : ""}" data-district="${escapeHtml(k)}">${escapeHtml(name)}</button>`).join("")}
+      </div>
+    </div>
+    <div id="results"></div>`;
+  document.getElementById("search").addEventListener("input", e => { state.search = e.target.value; renderResults(); });
+  document.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => {
+    state.district = c.dataset.district;
+    document.querySelectorAll(".chip").forEach(x => x.classList.toggle("active", x === c));
+    renderResults();
+  }));
+  document.getElementById("results").addEventListener("click", e => {
+    const wa = e.target.closest(".btn-whatsapp");
+    if (wa) return chatOnWhatsApp(wa.dataset.house);
+    const open = e.target.closest("[data-open]");
+    if (open) openViewer(open.dataset.open);
+  });
+  renderResults();
+}
+
+function houseCard(h) {
+  const paths = h.image_paths || [];
+  const main = paths.length
+    ? `<img src="${escapeHtml(photoUrl(paths[0]))}" alt="${escapeHtml(h.title)}" loading="lazy">`
+    : `<div class="no-photo">🏠</div>`;
+  const meta = [h.house_type, bedsText(h)].map(x => x ? escapeHtml(x) : "").filter(Boolean).join(" · ");
+  return `
+    <div class="house-card">
+      <div class="house-main" data-open="${escapeHtml(h.id)}" role="button" aria-label="View all photos of ${escapeHtml(h.title)}">
+        ${main}
+        ${paths.length > 1 ? `<span class="photo-badge">📷 ${paths.length} photos · tap to view</span>` : ""}
+      </div>
+      <div class="house-body">
+        <div class="house-rent">${escapeHtml(fmtRent(h.rent_ugx))} <small>/ month</small></div>
+        <div class="house-title" data-open="${escapeHtml(h.id)}" style="cursor:pointer">${escapeHtml(h.title)}</div>
+        <div class="house-meta">📍 ${escapeHtml(whereOf(h))}${meta ? ` · 🏠 ${meta}` : ""}</div>
+        <button class="btn-whatsapp" data-house="${escapeHtml(h.id)}">💬 I like this house, chat on WhatsApp</button>
+      </div>
+    </div>`;
+}
+
+function groupedHtml(list) {
+  return groupHouses(list).map(d => `
+    <h2 class="district-title">${escapeHtml(d.name)}</h2>
+    ${d.areas.map(a => `
+      <div class="area-title">${escapeHtml(a.name)}</div>
+      ${a.villages.map(v => `
+        ${v.name ? `<div class="village-title">${escapeHtml(v.name)}</div>` : ""}
+        ${v.houses.map(houseCard).join("")}`).join("")}`).join("")}`).join("");
+}
+
+function renderResults() {
+  const box = document.getElementById("results");
+  const pool = state.houses.filter(inDistrict);
+  if (!pool.length) {
+    box.innerHTML = `<div class="empty-box">No houses ${state.district !== "all" ? "in that district" : "yet. Please check back soon"}.</div>`;
+    return;
+  }
+  const tokens = searchTokens();
+  if (!tokens.length) { box.innerHTML = groupedHtml(pool); return; }
+
+  const scored = pool.map(h => ({ h, ...matchScore(h, tokens) }));
+  const matches = scored.filter(x => x.hit > 0)
+    .sort((a, b) => b.hit - a.hit || b.score - a.score || a.h.rent_ugx - b.h.rent_ugx).map(x => x.h);
+  const others = scored.filter(x => x.hit === 0).map(x => x.h);
+
+  let html = "";
+  if (matches.length) {
+    html += `<div class="section-title">Best matches for “${escapeHtml(norm(state.search))}”</div>
+             <p class="section-sub">${matches.length} house${matches.length === 1 ? "" : "s"} found</p>
+             ${matches.map(houseCard).join("")}`;
+  } else {
+    html += `<div class="empty-box" style="padding:26px 10px">No exact match for “${escapeHtml(norm(state.search))}”. Here are all our houses:</div>`;
+  }
+  if (others.length) {
+    if (matches.length) html += `<div class="section-title">Other houses</div>`;
+    html += groupedHtml(others);
+  }
+  box.innerHTML = html;
+}
+
+// ---------- full-screen viewer: swipe sideways, scroll down for all photos ----------
+let viewerEl = null, viewerKeyHandler = null;
+
+function openViewer(id) {
+  const h = state.houses.find(x => x.id === id);
+  if (!h || viewerEl) return;
+  const paths = h.image_paths || [];
+  const urls = paths.map(photoUrl);
+  const meta = [h.house_type, bedsText(h)].map(x => x ? escapeHtml(x) : "").filter(Boolean).join(" · ");
+  viewerEl = document.createElement("div");
+  viewerEl.className = "viewer";
+  viewerEl.setAttribute("role", "dialog");
+  viewerEl.setAttribute("aria-modal", "true");
+  viewerEl.innerHTML = `
+    <div class="viewer-bar">
+      <button class="viewer-close" aria-label="Back to houses">← Back</button>
+      <span class="count" id="v-count">${urls.length ? `1 / ${urls.length}` : ""}</span>
+    </div>
+    <div class="viewer-scroll" id="v-scroll"><div class="viewer-inner">
+      ${urls.length ? `
+        <div class="carousel-wrap">
+          <div class="carousel" id="v-carousel">
+            ${urls.map((u, i) => `<img src="${escapeHtml(u)}" alt="${escapeHtml(h.title)} photo ${i + 1}" ${i === 0 ? "" : 'loading="lazy"'}>`).join("")}
+          </div>
+          ${urls.length > 1 ? `<button class="car-nav prev" aria-label="Previous photo">‹</button><button class="car-nav next" aria-label="Next photo">›</button>` : ""}
+        </div>` : `<div class="house-main"><div class="no-photo">🏠</div></div>`}
+      <div class="house-body">
+        <div class="house-rent">${escapeHtml(fmtRent(h.rent_ugx))} <small>/ month</small></div>
+        <div class="house-title">${escapeHtml(h.title)}</div>
+        <div class="house-meta">📍 ${escapeHtml(whereOf(h))}${meta ? ` · 🏠 ${meta}` : ""}</div>
+        ${h.description ? `<p class="house-desc">${escapeHtml(h.description)}</p>` : ""}
+        <button class="btn-whatsapp" id="v-wa">💬 I like this house, chat on WhatsApp</button>
+      </div>
+      ${urls.length > 1 ? `
+        <div class="photo-grid-title">All photos (${urls.length})</div>
+        <div class="photo-grid" id="v-grid">
+          ${urls.map((u, i) => `<img src="${escapeHtml(u)}" alt="Photo ${i + 1}" data-idx="${i}" loading="lazy" class="${i === 0 ? "current" : ""}">`).join("")}
+        </div>` : ""}
+    </div></div>`;
+  document.body.appendChild(viewerEl);
+  document.body.style.overflow = "hidden";
+  history.pushState({ viewer: 1 }, "");
+
+  const car = viewerEl.querySelector("#v-carousel");
+  const count = viewerEl.querySelector("#v-count");
+  const grid = viewerEl.querySelector("#v-grid");
+  const go = i => car.scrollTo({ left: Math.max(0, Math.min(urls.length - 1, i)) * car.clientWidth, behavior: "smooth" });
+  const current = () => Math.round(car.scrollLeft / car.clientWidth);
+
+  viewerEl.querySelector(".viewer-close").addEventListener("click", closeViewer);
+  viewerEl.querySelector("#v-wa").addEventListener("click", () => chatOnWhatsApp(h.id));
+  if (car) {
+    car.addEventListener("scroll", () => {
+      const i = current();
+      count.textContent = `${i + 1} / ${urls.length}`;
+      if (grid) grid.querySelectorAll("img").forEach((im, k) => im.classList.toggle("current", k === i));
+    }, { passive: true });
+    const prev = viewerEl.querySelector(".car-nav.prev"), next = viewerEl.querySelector(".car-nav.next");
+    if (prev) prev.addEventListener("click", () => go(current() - 1));
+    if (next) next.addEventListener("click", () => go(current() + 1));
+  }
+  if (grid) grid.addEventListener("click", e => {
+    const im = e.target.closest("img[data-idx]");
+    if (!im) return;
+    viewerEl.querySelector("#v-scroll").scrollTo({ top: 0, behavior: "smooth" });
+    go(Number(im.dataset.idx));
+  });
+  viewerKeyHandler = e => {
+    if (e.key === "Escape") closeViewer();
+    else if (car && e.key === "ArrowLeft") go(current() - 1);
+    else if (car && e.key === "ArrowRight") go(current() + 1);
+  };
+  document.addEventListener("keydown", viewerKeyHandler);
+}
+
+function removeViewer() {
+  if (!viewerEl) return;
+  viewerEl.remove(); viewerEl = null;
+  document.body.style.overflow = "";
+  document.removeEventListener("keydown", viewerKeyHandler);
+}
+function closeViewer() {
+  if (!viewerEl) return;
+  if (history.state && history.state.viewer) history.back(); else removeViewer();
+}
+// the phone's Back button closes the viewer instead of leaving the site
+window.addEventListener("popstate", removeViewer);
+
+function chatOnWhatsApp(id) {
+  const h = state.houses.find(x => x.id === id);
+  if (!h) return;
+  const msg = `Hello, I am interested in this house on newplus.app:\n${h.title}\n📍 ${whereOf(h)}\n💰 ${fmtRent(h.rent_ugx)} per month\nIs it still available?`;
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+}
+</script>
+</body>
+</html>
