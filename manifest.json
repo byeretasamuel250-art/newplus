@@ -1,7 +1,7 @@
 {
   "name": "newplus",
   "short_name": "newplus",
-  "description": "Find and post houses for rent near you in Uganda.",
+  "description": "Find houses for rent near you in Uganda.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
