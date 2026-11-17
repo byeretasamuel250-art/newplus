@@ -142,7 +142,7 @@ function inDistrict(h) { return state.district === "all" || key(h.district) === 
 function chipsHtml() {
   const allDistricts = [...new Map(state.houses.map(h => [key(h.district), norm(h.district)])).entries()]
     .sort((x, y) => x[1].localeCompare(y[1]));
-  return `<button class="chip ${state.district === "all" ? "active" : ""}" data-district="all">All districts</button>
+  return `<button class="chip ${state.district === "all" ? "active" : ""}" data-district="all">All here</button>
     ${allDistricts.map(([k, name]) => `<button class="chip ${state.district === k ? "active" : ""}" data-district="${escapeHtml(k)}">${escapeHtml(name)}</button>`).join("")}`;
 }
 function refreshChips() {
