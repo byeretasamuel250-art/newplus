@@ -218,7 +218,7 @@ function houseCard(h, showDistrict) {
       <div class="house-main" data-open="${escapeHtml(h.id)}" role="button" aria-label="View photos of ${escapeHtml(h.title)}">
         ${main}
         <span class="price-tag">${escapeHtml(fmtRent(h.rent_ugx))}<small> /mo</small></span>
-        ${paths.length > 1 ? `<span class="photo-badge">📷 ${paths.length}</span>` : ""}
+        ${paths.length > 1 ? `<span class="photo-badge"> ${paths.length}</span>` : ""}
       </div>
       <div class="house-body">
         <div class="house-title" data-open="${escapeHtml(h.id)}">${escapeHtml(h.title)}</div>
