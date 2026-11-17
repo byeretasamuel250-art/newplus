@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>newplus.app: Houses for Rent in Uganda</title>
+<meta name="description" content="Browse houses for rent in Uganda by district, area and village. See photos and chat with us directly on WhatsApp.">
+<link rel="canonical" href="https://newplus.app/">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#FFFDF5">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="houses.css">
+</head>
+<body>
+<div id="app"><div class="center-loading">Loading…</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script>
+let sb;
+const state = { houses: [], district: "all", search: "", sig: "" };
+const root = () => document.getElementById("app");
+const BRAND_HTML = `<div class="brand"><img class="brand-logo" src="logo.svg" alt="" width="30" height="30">newplus<span class="brand-dot">.</span></div>`;
+
+window.addEventListener("DOMContentLoaded", () => {
+  try { sb = initSupabase(); } catch (e) { return; }
+  renderIntro();
+});
+
+function renderIntro() {
+  root().innerHTML = `
+    ${BRAND_HTML}
+    <div class="intro-screen">
+      <div class="intro-icons">
+        <div class="intro-icon" style="font-size:28px">🏠</div>
+        <div class="intro-icon" style="font-size:28px">🏡</div>
+        <div class="intro-icon" style="font-size:28px">🏘️</div>
+        <div class="intro-icon" style="font-size:28px">🔑</div>
+      </div>
+      <h1 class="intro-headline">Looking for a house to rent? We have it.</h1>
+      <p class="intro-subhead">Browse houses by district, area and village. See the photos, pick the one you like, and chat with us directly on WhatsApp.</p>
+      <button class="btn-primary" onclick="openListings()">Get started</button>
+    </div>`;
+}
+
+async function fetchHouses() {
+  const { data, error } = await sb.from("houses").select("*").order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []).filter(h => h.is_available);
+}
+
+const openListings = safeRender(async function () {
+  root().innerHTML = `${BRAND_HTML}<div class="center-loading">Loading houses…</div>`;
+  state.houses = await fetchHouses();
+  state.sig = JSON.stringify(state.houses);
+  renderListings();
+  startLiveUpdates();
+});
+
+// ---------- live updates: changes made in admin appear without refreshing ----------
+let liveStarted = false, refreshTimer = null;
+
+function applyHouses(list) {
+  const sig = JSON.stringify(list);
+  if (sig === state.sig) return;                       // nothing changed, don't disturb the screen
+  state.sig = sig;
+  state.houses = list;
+  if (state.district !== "all" && !list.some(h => key(h.district) === state.district)) state.district = "all";
+  const rowScroll = [...document.querySelectorAll(".h-row")].map(r => r.scrollLeft);
+  refreshChips();
+  renderResults();
+  const rows = document.querySelectorAll(".h-row");    // keep each row where the visitor had scrolled it
+  if (rows.length === rowScroll.length) rows.forEach((r, i) => { r.scrollLeft = rowScroll[i]; });
+  if (viewerEl && !list.some(h => h.id === viewerHouseId)) closeViewer();   // house was removed or hidden
+}
+
+async function refreshHouses() {
+  try { applyHouses(await fetchHouses()); } catch (e) { console.warn("Refresh skipped:", e); }
+}
+function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshHouses, 400); }
+
+function startLiveUpdates() {
+  if (liveStarted) return;
+  liveStarted = true;
+  // 1) instant: the database pings this channel the moment a house is added, edited, hidden or deleted.
+  //    The ping carries NO house data, the page just re-reads the public list.
+  try {
+    sb.channel("houses-changes").on("broadcast", { event: "changed" }, scheduleRefresh).subscribe();
+  } catch (e) { console.warn("Live channel unavailable, using timed refresh only.", e); }
+  // 2) safety net: refresh every 45s, and whenever the visitor comes back to the tab or goes back online
+  setInterval(() => { if (!document.hidden) refreshHouses(); }, 45000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshHouses(); });
+  window.addEventListener("online", refreshHouses);
+}
+
+// ---------- helpers ----------
+const norm = s => (s || "").trim().replace(/\s+/g, " ");
+const key = s => norm(s).toLowerCase();
+const photoUrl = path => sb.storage.from("houses").getPublicUrl(path).data.publicUrl;
+const fmtRent = n => "UGX " + Number(n).toLocaleString("en-UG");
+const whereOf = h => [h.village, h.area, h.district].map(norm).filter(Boolean).join(", ");
+const bedsText = h => (h.bedrooms === null || h.bedrooms === undefined || h.bedrooms === "") ? "" : `${h.bedrooms} bedroom${h.bedrooms == 1 ? "" : "s"}`;
+const typeText = h => key(`${h.house_type || ""} ${bedsText(h)}`);
+
+// ---------- search: best matches first ----------
+function searchTokens() { return key(state.search).split(" ").filter(Boolean); }
+
+function matchScore(h, tokens) {
+  const fields = [
+    [key(h.area), 10], [key(h.village), 9], [key(h.district), 8],
+    [typeText(h), 7], [key(h.title), 5], [key(h.description), 2]
+  ];
+  let hit = 0, score = 0;
+  for (const t of tokens) {
+    let best = 0;
+    for (const [text, w] of fields) {
+      if (!text) continue;
+      let s = 0;
+      if (text === t) s = w + 3;
+      else if (text.startsWith(t)) s = w + 2;
+      else if (text.split(" ").some(word => word.startsWith(t))) s = w + 1;
+      else if (text.includes(t)) s = w;
+      if (s > best) best = s;
+    }
+    if (best) { hit++; score += best; }
+  }
+  return { hit, score };
+}
+
+function inDistrict(h) { return state.district === "all" || key(h.district) === state.district; }
+
+// ---------- listings screen ----------
+function chipsHtml() {
+  const allDistricts = [...new Map(state.houses.map(h => [key(h.district), norm(h.district)])).entries()]
+    .sort((x, y) => x[1].localeCompare(y[1]));
+  return `<button class="chip ${state.district === "all" ? "active" : ""}" data-district="all">All districts</button>
+    ${allDistricts.map(([k, name]) => `<button class="chip ${state.district === k ? "active" : ""}" data-district="${escapeHtml(k)}">${escapeHtml(name)}</button>`).join("")}`;
+}
+function refreshChips() {
+  const row = document.querySelector("#topbar .chip-row");
+  if (row) row.innerHTML = chipsHtml();
+}
+
+function renderListings() {
+  // The header lives OUTSIDE the scrolling page and is pinned to the top of the screen,
+  // so the search bar stays visible however far down you scroll.
+  const old = document.getElementById("topbar");
+  if (old) old.remove();
+  const bar = document.createElement("header");
+  bar.id = "topbar";
+  bar.className = "site-bar";
+  bar.innerHTML = `
+    <div class="site-inner">
+      <div class="site-row">
+        ${BRAND_HTML}
+        <input id="search" type="search" placeholder="Search area or house type…" value="${escapeHtml(state.search)}" enterkeyhint="search" autocomplete="off">
+      </div>
+      <div class="chip-row">${chipsHtml()}</div>
+    </div>`;
+  document.body.insertBefore(bar, root());
+  const setBarHeight = () => document.documentElement.style.setProperty("--bar-h", bar.offsetHeight + "px");
+  setBarHeight();
+  if (window.ResizeObserver) new ResizeObserver(setBarHeight).observe(bar);
+  root().classList.add("has-bar");
+  root().innerHTML = `<div id="results"></div>`;
+
+  document.getElementById("search").addEventListener("input", e => {
+    state.search = e.target.value;
+    renderResults();
+    window.scrollTo({ top: 0 });          // jump up so the best matches are the first thing you see
+  });
+  bar.addEventListener("click", e => {
+    const c = e.target.closest(".chip");
+    if (!c) return;
+    state.district = c.dataset.district;
+    bar.querySelectorAll(".chip").forEach(x => x.classList.toggle("active", x === c));
+    renderResults();
+    window.scrollTo({ top: 0 });
+  });
+  document.getElementById("results").addEventListener("click", e => {
+    const wa = e.target.closest(".btn-whatsapp");
+    if (wa) return chatOnWhatsApp(wa.dataset.house);
+    const nav = e.target.closest(".row-nav");
+    if (nav) {
+      const row = nav.parentElement.querySelector(".h-row");
+      return row.scrollBy({ left: Number(nav.dataset.dir) * row.clientWidth * 0.85, behavior: "smooth" });
+    }
+    const see = e.target.closest("[data-see]");
+    if (see) {
+      state.district = see.dataset.see;
+      document.querySelectorAll(".chip").forEach(x => x.classList.toggle("active", x.dataset.district === state.district));
+      renderResults();
+      return window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    const open = e.target.closest("[data-open]");
+    if (open) openViewer(open.dataset.open);
+  });
+  renderResults();
+}
+
+function houseCard(h, showDistrict) {
+  const paths = h.image_paths || [];
+  const main = paths.length
+    ? `<img src="${escapeHtml(photoUrl(paths[0]))}" alt="${escapeHtml(h.title)}" loading="lazy">`
+    : `<div class="no-photo">🏠</div>`;
+  const loc = [h.village, h.area, showDistrict ? h.district : ""].map(norm).filter(Boolean).join(", ");
+  const tags = [h.house_type, bedsText(h)].map(x => x ? `<span class="tag">${escapeHtml(x)}</span>` : "").join("");
+  return `
+    <article class="house-card">
+      <div class="house-main" data-open="${escapeHtml(h.id)}" role="button" aria-label="View photos of ${escapeHtml(h.title)}">
+        ${main}
+        <span class="price-tag">${escapeHtml(fmtRent(h.rent_ugx))}<small> /mo</small></span>
+        ${paths.length > 1 ? `<span class="photo-badge">📷 ${paths.length}</span>` : ""}
+      </div>
+      <div class="house-body">
+        <div class="house-title" data-open="${escapeHtml(h.id)}">${escapeHtml(h.title)}</div>
+        <div class="house-loc">📍 ${escapeHtml(loc)}</div>
+        ${tags ? `<div class="tags">${tags}</div>` : ""}
+        <button class="btn-whatsapp" data-house="${escapeHtml(h.id)}">💬 Chat on WhatsApp</button>
+      </div>
+    </article>`;
+}
+
+// one horizontal row, with arrow buttons on computers
+function rowHtml(list, showDistrict) {
+  return `<div class="row-wrap">
+    <button class="row-nav prev" data-dir="-1" aria-label="Scroll left">‹</button>
+    <div class="h-row">${list.map(x => houseCard(x, showDistrict)).join("")}</div>
+    <button class="row-nav next" data-dir="1" aria-label="Scroll right">›</button>
+  </div>`;
+}
+
+// Jumia style: each district is its own section with a sideways-scrolling row,
+// sections stack from top to bottom. Houses in the same area/village sit side by side.
+function districtSections(list) {
+  const map = new Map();
+  for (const h of list) {
+    const k = key(h.district);
+    if (!map.has(k)) map.set(k, { k, name: norm(h.district), houses: [] });
+    map.get(k).houses.push(h);
+  }
+  const byLoc = (a, b) => key(a.area).localeCompare(key(b.area)) || key(a.village).localeCompare(key(b.village));
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name)).map(d => {
+    d.houses.sort(byLoc);
+    return `
+      <section class="district-section">
+        <div class="section-head">
+          <h2>${escapeHtml(d.name)} <span class="count">${d.houses.length}</span></h2>
+          <button class="see-all" data-see="${escapeHtml(d.k)}">See all ›</button>
+        </div>
+        ${rowHtml(d.houses, false)}
+      </section>`;
+  }).join("");
+}
+
+// when one district is chosen: a grid of every house in it
+function gridHtml(list) {
+  const sorted = [...list].sort((a, b) => key(a.area).localeCompare(key(b.area)) || key(a.village).localeCompare(key(b.village)));
+  return `<div class="h-grid">${sorted.map(x => houseCard(x, false)).join("")}</div>`;
+}
+
+function listingHtml(list) {
+  return state.district === "all" ? districtSections(list) : gridHtml(list);
+}
+
+function renderResults() {
+  const box = document.getElementById("results");
+  const pool = state.houses.filter(inDistrict);
+  if (!pool.length) {
+    box.innerHTML = `<div class="empty-box">No houses ${state.district !== "all" ? "in that district" : "yet. Please check back soon"}.</div>`;
+    return;
+  }
+  const tokens = searchTokens();
+  if (!tokens.length) { box.innerHTML = listingHtml(pool); return; }
+
+  const scored = pool.map(h => ({ h, ...matchScore(h, tokens) }));
+  const matches = scored.filter(x => x.hit > 0)
+    .sort((a, b) => b.hit - a.hit || b.score - a.score || a.h.rent_ugx - b.h.rent_ugx).map(x => x.h);
+  const others = scored.filter(x => x.hit === 0).map(x => x.h);
+
+  let html = "";
+  if (matches.length) {
+    html += `<section class="district-section">
+      <div class="section-head"><h2>Best matches for “${escapeHtml(norm(state.search))}” <span class="count">${matches.length}</span></h2></div>
+      ${rowHtml(matches, true)}
+    </section>`;
+  } else {
+    html += `<div class="empty-box" style="padding:26px 10px">No exact match for “${escapeHtml(norm(state.search))}”. Here are all our houses:</div>`;
+  }
+  if (others.length) {
+    if (matches.length) html += `<div class="other-title">Other houses</div>`;
+    html += listingHtml(others);
+  }
+  box.innerHTML = html;
+}
+
+// ---------- full-screen viewer: swipe sideways, scroll down for all photos ----------
+let viewerEl = null, viewerKeyHandler = null, viewerHouseId = null;
+
+function openViewer(id) {
+  const h = state.houses.find(x => x.id === id);
+  if (!h || viewerEl) return;
+  const paths = h.image_paths || [];
+  const urls = paths.map(photoUrl);
+  const meta = [h.house_type, bedsText(h)].map(x => x ? escapeHtml(x) : "").filter(Boolean).join(" · ");
+  viewerHouseId = h.id;
+  viewerEl = document.createElement("div");
+  viewerEl.className = "viewer";
+  viewerEl.setAttribute("role", "dialog");
+  viewerEl.setAttribute("aria-modal", "true");
+  viewerEl.innerHTML = `
+    <div class="viewer-bar">
+      <button class="viewer-close" aria-label="Back to houses">← Back</button>
+      <span class="count" id="v-count">${urls.length ? `1 / ${urls.length}` : ""}</span>
+    </div>
+    <div class="viewer-scroll" id="v-scroll"><div class="viewer-inner">
+      ${urls.length ? `
+        <div class="carousel-wrap">
+          <div class="carousel" id="v-carousel">
+            ${urls.map((u, i) => `<img src="${escapeHtml(u)}" alt="${escapeHtml(h.title)} photo ${i + 1}" ${i === 0 ? "" : 'loading="lazy"'}>`).join("")}
+          </div>
+          ${urls.length > 1 ? `<button class="car-nav prev" aria-label="Previous photo">‹</button><button class="car-nav next" aria-label="Next photo">›</button>` : ""}
+        </div>` : `<div class="house-main"><div class="no-photo">🏠</div></div>`}
+      <div class="house-body">
+        <div class="house-rent">${escapeHtml(fmtRent(h.rent_ugx))} <small>/ month</small></div>
+        <div class="house-title">${escapeHtml(h.title)}</div>
+        <div class="house-meta">📍 ${escapeHtml(whereOf(h))}${meta ? ` · 🏠 ${meta}` : ""}</div>
+        ${h.description ? `<p class="house-desc">${escapeHtml(h.description)}</p>` : ""}
+        <button class="btn-whatsapp" id="v-wa">💬 I like this house, chat on WhatsApp</button>
+      </div>
+      ${urls.length > 1 ? `
+        <div class="photo-grid-title">All photos (${urls.length})</div>
+        <div class="photo-grid" id="v-grid">
+          ${urls.map((u, i) => `<img src="${escapeHtml(u)}" alt="Photo ${i + 1}" data-idx="${i}" loading="lazy" class="${i === 0 ? "current" : ""}">`).join("")}
+        </div>` : ""}
+    </div></div>`;
+  document.body.appendChild(viewerEl);
+  document.body.style.overflow = "hidden";
+  history.pushState({ viewer: 1 }, "");
+
+  const car = viewerEl.querySelector("#v-carousel");
+  const count = viewerEl.querySelector("#v-count");
+  const grid = viewerEl.querySelector("#v-grid");
+  const go = i => car.scrollTo({ left: Math.max(0, Math.min(urls.length - 1, i)) * car.clientWidth, behavior: "smooth" });
+  const current = () => Math.round(car.scrollLeft / car.clientWidth);
+
+  viewerEl.querySelector(".viewer-close").addEventListener("click", closeViewer);
+  viewerEl.querySelector("#v-wa").addEventListener("click", () => chatOnWhatsApp(h.id));
+  if (car) {
+    car.addEventListener("scroll", () => {
+      const i = current();
+      count.textContent = `${i + 1} / ${urls.length}`;
+      if (grid) grid.querySelectorAll("img").forEach((im, k) => im.classList.toggle("current", k === i));
+    }, { passive: true });
+    const prev = viewerEl.querySelector(".car-nav.prev"), next = viewerEl.querySelector(".car-nav.next");
+    if (prev) prev.addEventListener("click", () => go(current() - 1));
+    if (next) next.addEventListener("click", () => go(current() + 1));
+  }
+  if (grid) grid.addEventListener("click", e => {
+    const im = e.target.closest("img[data-idx]");
+    if (!im) return;
+    viewerEl.querySelector("#v-scroll").scrollTo({ top: 0, behavior: "smooth" });
+    go(Number(im.dataset.idx));
+  });
+  viewerKeyHandler = e => {
+    if (e.key === "Escape") closeViewer();
+    else if (car && e.key === "ArrowLeft") go(current() - 1);
+    else if (car && e.key === "ArrowRight") go(current() + 1);
+  };
+  document.addEventListener("keydown", viewerKeyHandler);
+}
+
+function removeViewer() {
+  if (!viewerEl) return;
+  viewerEl.remove(); viewerEl = null;
+  document.body.style.overflow = "";
+  document.removeEventListener("keydown", viewerKeyHandler);
+}
+function closeViewer() {
+  if (!viewerEl) return;
+  if (history.state && history.state.viewer) history.back(); else removeViewer();
+}
+// the phone's Back button closes the viewer instead of leaving the site
+window.addEventListener("popstate", removeViewer);
+
+function chatOnWhatsApp(id) {
+  const h = state.houses.find(x => x.id === id);
+  if (!h) return;
+  const msg = `Hello, I am interested in this house on newplus.app:\n${h.title}\n📍 ${whereOf(h)}\n💰 ${fmtRent(h.rent_ugx)} per month\nIs it still available?`;
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+}
+</script>
+</body>
+</html>
