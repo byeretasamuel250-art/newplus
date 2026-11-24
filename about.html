@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About newplus: Find Houses for Rent in Uganda</title>
+<meta name="description" content="newplus is an app for finding houses for rent near you in Uganda. Browse listings by district, message the landlord directly and sort out the details.">
+<link rel="canonical" href="https://newplus.app/about.html">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<meta name="theme-color" content="#F68B1E">
+<meta property="og:type" content="website">
+<meta property="og:title" content="About newplus: Find Houses for Rent in Uganda">
+<meta property="og:description" content="Learn how newplus helps you find a house near you and message the landlord directly.">
+<meta property="og:url" content="https://newplus.app/about.html">
+<meta property="og:image" content="https://newplus.app/about-img/lounge-white.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="About newplus: Find Houses for Rent in Uganda">
+<meta name="twitter:description" content="Find a house near you and message the landlord directly.">
+<meta name="twitter:image" content="https://newplus.app/about-img/lounge-white.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&amp;family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "newplus",
+  "url": "https://newplus.app/",
+  "image": "https://newplus.app/about-img/lounge-white.jpg",
+  "description": "newplus is an app for finding houses for rent near you in Uganda. Create a profile, browse listings nearby by district or distance, and message the landlord directly to sort out the details.",
+  "disambiguatingDescription": "newplus is a local house rental marketplace web app in Uganda, it is not a news publication and is not affiliated with any news outlet, including any similarly-named one.",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Any (runs in a web browser, no install required)",
+  "areaServed": { "@type": "Country", "name": "Uganda" },
+  "offers": {
+    "@type": "Offer",
+    "price": "5000",
+    "priceCurrency": "UGX",
+    "description": "Monthly subscription to browse house-for-rent listings and message about them"
+  }
+}
+</script>
+
+<style>
+:root{
+  --bg:#F4F4F4; --card:#FFFFFF; --soft:#FDEFE0; --line:#E2E2E2;
+  --ink:#252525; --muted:#6A6A6A;
+  --gold:#B85C00; --gold-b:#F68B1E; --clay:#C2410C; --forest:#2B2B2B; --forest-b:#444444;
+--r:16px; --r-lg:22px;
+  --shadow:0 6px 24px rgba(33,28,19,.10);
+  --display:'Sora',system-ui,sans-serif;
+  --body:'Plus Jakarta Sans','Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:120px}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased}
+img{max-width:100%;display:block}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+:focus-visible{outline:3px solid var(--forest);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1200px;margin:0 auto;padding:0 16px}
+h1,h2,h3{font-family:var(--display);line-height:1.2}
+
+/* ---------- top promo bar ---------- */
+.promo{background:var(--gold-b);color:var(--ink);font-size:13px;font-weight:600}
+.promo .wrap{display:flex;align-items:center;justify-content:center;gap:12px;padding-top:7px;padding-bottom:7px;position:relative}
+.promo a{text-decoration:underline}
+.promo button{position:absolute;right:12px;font-size:18px;line-height:1;opacity:.7}
+.promo button:hover{opacity:1}
+
+/* ---------- header ---------- */
+header.top{position:sticky;top:0;z-index:50;background:var(--card);box-shadow:0 2px 12px rgba(33,28,19,.08)}
+.head-row{display:flex;align-items:center;gap:16px;padding:12px 16px}
+.logo{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.5px}
+.logo img{width:32px;height:32px}
+.logo i{font-style:normal;color:var(--gold)}
+.search{flex:1;display:flex;max-width:620px;margin:0 auto;border:2px solid var(--line);border-radius:999px;overflow:hidden;background:#fff;transition:border-color .2s}
+.search:focus-within{border-color:var(--gold-b)}
+.search input{flex:1;border:0;outline:0;padding:10px 18px;font:inherit;font-size:14px;min-width:0;background:transparent}
+.search button{background:var(--gold-b);padding:0 22px;font-weight:700;font-size:14px}
+.search button:hover{background:var(--gold)}
+.head-links{display:flex;align-items:center;gap:6px}
+.head-links a.lnk{padding:8px 12px;border-radius:10px;font-weight:600;font-size:14px}
+.head-links a.lnk:hover{background:var(--soft)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 22px;border-radius:12px;font-weight:700;font-size:15px;transition:transform .15s,box-shadow .15s,background .2s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(33,28,19,.18)}
+.btn-gold{background:var(--gold-b);color:var(--ink)}
+.btn-gold:hover{background:var(--gold)}
+.btn-dark{background:var(--forest);color:#fff}
+.btn-dark:hover{background:var(--forest-b)}
+.btn-ghost{background:rgba(255,255,255,.18);color:#fff;border:2px solid rgba(255,255,255,.6)}
+.subnav{border-top:1px solid var(--line);background:var(--card)}
+.subnav .wrap{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.subnav a{white-space:nowrap;padding:10px 14px;font-size:13.5px;font-weight:600;color:var(--muted);border-bottom:3px solid transparent}
+.subnav a:hover,.subnav a.on{color:var(--ink);border-bottom-color:var(--gold-b)}
+
+/* ---------- hero (sidebar + carousel + side tiles) ---------- */
+.hero{display:grid;grid-template-columns:230px 1fr 230px;gap:14px;margin-top:18px}
+.side-menu{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:8px;display:flex;flex-direction:column}
+.side-menu h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:8px 10px 4px}
+.side-menu a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;font-size:14px;font-weight:600;transition:background .15s,transform .15s}
+.side-menu a:hover{background:var(--soft);transform:translateX(4px)}
+.side-menu a span{font-size:18px;width:24px;text-align:center}
+
+.carousel{position:relative;border-radius:var(--r);overflow:hidden;min-height:430px;background:var(--forest);box-shadow:var(--shadow)}
+.slide{position:absolute;inset:0;display:grid;grid-template-columns:1.05fr .95fr;opacity:0;visibility:hidden;transition:opacity .6s,visibility .6s;color:#fff}
+.slide.on{opacity:1;visibility:visible}
+.slide .txt{padding:36px 8px 48px 64px;display:flex;flex-direction:column;justify-content:center;gap:14px;z-index:2}
+.slide .tag{align-self:flex-start;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.03em}
+.slide h2{font-size:clamp(24px,3.2vw,38px);font-weight:800;letter-spacing:-.5px}
+.slide p{font-size:15px;opacity:.92;max-width:34ch}
+.slide .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+.slide .pic{position:relative;overflow:hidden;clip-path:polygon(14% 0,100% 0,100% 100%,0 100%)}
+.slide .pic img{width:100%;height:100%;object-fit:cover;transform:scale(1.08);transition:transform 6s ease-out}
+.slide.on .pic img{transform:scale(1)}
+.s1{background:#2B2B2B}
+.s2{background:#F68B1E;color:var(--ink)}
+.s2 .tag{background:rgba(33,28,19,.12);border-color:rgba(33,28,19,.25)}
+.s3{background:#1F4E79}
+.car-btn{position:absolute;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.92);color:var(--ink);font-size:20px;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.25);transition:transform .15s}
+.car-btn:hover{transform:translateY(-50%) scale(1.1)}
+.car-btn.prev{left:10px}.car-btn.next{right:10px}
+.dots{position:absolute;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:8px;z-index:5}
+.dots button{width:10px;height:10px;border-radius:99px;background:rgba(255,255,255,.55);transition:width .3s,background .3s}
+.dots button.on{width:28px;background:#fff}
+.bar{position:absolute;left:0;bottom:0;height:4px;background:rgba(255,255,255,.85);width:0;z-index:5}
+
+.side-tiles{display:grid;grid-template-rows:1fr 1fr;gap:14px}
+.tile{position:relative;border-radius:var(--r);overflow:hidden;min-height:150px;color:#fff;display:flex;align-items:flex-end;padding:14px;isolation:isolate}
+.tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2;transition:transform .5s}
+.tile::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:-1}
+.tile:hover img{transform:scale(1.08)}
+.tile b{display:block;font-family:var(--display);font-size:15px}
+.tile small{font-size:12px;opacity:.9}
+
+/* ---------- USP strip ---------- */
+.usp{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.usp div{display:flex;gap:12px;align-items:center;padding:16px 18px;border-right:1px solid var(--line)}
+.usp div:last-child{border-right:0}
+.usp .ic{font-size:26px;flex:none}
+.usp b{display:block;font-size:14px}
+.usp small{color:var(--muted);font-size:12.5px;line-height:1.35;display:block}
+
+/* ---------- sections ---------- */
+section{margin-top:44px}
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-radius:var(--r) var(--r) 0 0;background:var(--gold-b);color:var(--ink)}
+.sec-head h2{font-size:clamp(17px,2.2vw,21px);font-weight:800}
+.sec-head a{font-size:13px;font-weight:700;text-decoration:underline}
+.sec-head.forest{background:var(--forest);color:#fff}
+.sec-head.clay{background:#2B2B2B;color:#fff}
+.sec-body{background:var(--card);border:1px solid var(--line);border-top:0;border-radius:0 0 var(--r) var(--r);padding:20px}
+.lead{max-width:62ch;color:var(--muted);margin-bottom:16px}
+
+/* style tiles (clickable) */
+.styles{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.style{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;padding:10px;border-radius:var(--r);transition:background .2s,transform .2s;width:100%}
+.style:hover{background:var(--soft);transform:translateY(-4px)}
+.style .ph{width:100%;aspect-ratio:1;border-radius:50%;overflow:hidden;border:3px solid var(--line);max-width:170px;transition:border-color .2s}
+.style:hover .ph{border-color:var(--gold-b)}
+.style .ph img{width:100%;height:100%;object-fit:cover;transition:transform .5s}
+.style:hover .ph img{transform:scale(1.12)}
+.style span{font-weight:700;font-size:14px}
+
+/* how it works */
+.hiw{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:center}
+.steps{display:flex;flex-direction:column;gap:10px}
+.step{display:flex;gap:14px;text-align:left;padding:14px 16px;border-radius:14px;border:2px solid var(--line);background:#fff;transition:border-color .2s,background .2s,transform .2s}
+.step:hover{transform:translateX(4px)}
+.step .n{flex:none;width:36px;height:36px;border-radius:50%;background:var(--soft);display:grid;place-items:center;font-family:var(--display);font-weight:800;transition:background .2s,color .2s}
+.step b{display:block;font-family:var(--display);font-size:16px}
+.step p{font-size:14px;color:var(--muted);max-height:0;overflow:hidden;transition:max-height .35s}
+.step.on{border-color:var(--gold-b);background:var(--soft)}
+.step.on .n{background:var(--gold-b)}
+.step.on p{max-height:140px;margin-top:4px}
+.phone{margin:0 auto;width:min(290px,100%);background:#1d1a14;border-radius:34px;padding:10px;box-shadow:var(--shadow)}
+.screen{background:var(--bg);border-radius:26px;min-height:420px;padding:18px 14px;display:none;flex-direction:column;gap:10px;animation:pop .4s}
+.screen.on{display:flex}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+.field{background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;color:var(--muted)}
+.field.f{border-color:var(--gold-b);color:var(--ink)}
+.pin{display:flex;gap:8px;justify-content:center;margin:6px 0}
+.pin i{width:34px;height:40px;border:1.5px solid var(--line);border-radius:9px;display:grid;place-items:center;background:#fff;font-style:normal;font-weight:700}
+.mini{display:flex;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mini img{width:78px;object-fit:cover;flex:none}
+.mini div{padding:8px 8px 8px 0;font-size:12px}
+.mini b{display:block;font-size:13px}
+.mini em{font-style:normal;color:var(--clay);font-weight:700}
+.bubble{max-width:80%;padding:9px 12px;border-radius:14px;font-size:13px}
+.bubble.l{background:#fff;border:1px solid var(--line);border-bottom-left-radius:4px}
+.bubble.r{background:var(--forest);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.scr-t{font-family:var(--display);font-weight:700;font-size:15px}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;text-align:center}
+.stat{padding:18px 10px;border-radius:var(--r);background:var(--soft)}
+.stat b{display:block;font-family:var(--display);font-size:clamp(24px,3.4vw,36px);font-weight:800;color:var(--forest)}
+.stat small{font-size:13px;color:var(--muted)}
+
+/* why cards */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.fcard{position:relative;border:1px solid var(--line);border-radius:var(--r);padding:20px 18px 18px;background:#fff;transition:transform .25s,box-shadow .25s,border-color .25s}
+.fcard:hover{transform:translateY(-6px);box-shadow:var(--shadow);border-color:var(--gold-b)}
+.fcard .badge{position:absolute;top:12px;right:12px;background:var(--clay);color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px}
+.fcard .ic{font-size:30px;margin-bottom:8px}
+.fcard h3{font-size:16px;margin-bottom:6px}
+.fcard p{font-size:14px;color:var(--muted)}
+
+/* gallery strip */
+.strip{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:8px;scrollbar-width:thin}
+.strip button{flex:none;width:210px;height:260px;border-radius:var(--r);overflow:hidden;position:relative;scroll-snap-align:start;isolation:isolate;text-align:left}
+.strip img{width:100%;height:100%;object-fit:cover;transition:transform .5s}
+.strip button:hover img{transform:scale(1.08)}
+.strip span{position:absolute;left:0;right:0;bottom:0;padding:26px 12px 10px;color:#fff;font-weight:700;font-size:13px;background:rgba(0,0,0,.5)}
+
+/* safety */
+.safe{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.safe div{display:flex;gap:12px;padding:14px;border-radius:14px;background:var(--soft)}
+.safe .ic{font-size:24px}
+.safe b{display:block;font-size:14.5px}
+.safe small{font-size:13px;color:var(--muted);display:block}
+
+/* FAQ */
+.faq-tools{display:flex;gap:10px;margin-bottom:12px}
+.faq-tools input{flex:1;padding:11px 16px;border:2px solid var(--line);border-radius:12px;font:inherit;font-size:14px;outline:0}
+.faq-tools input:focus{border-color:var(--gold-b)}
+.qa{border:1px solid var(--line);border-radius:12px;margin-bottom:8px;background:#fff;overflow:hidden}
+.qa button{width:100%;display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;text-align:left;font-weight:700;font-size:15px}
+.qa button::after{content:"+";font-size:22px;color:var(--gold);transition:transform .25s;flex:none}
+.qa.open button::after{transform:rotate(45deg)}
+.qa .a{max-height:0;overflow:hidden;transition:max-height .3s;padding:0 16px;color:var(--muted);font-size:14.5px}
+.qa.open .a{max-height:260px;padding-bottom:14px}
+.empty{display:none;text-align:center;color:var(--muted);padding:14px}
+
+/* CTA */
+.cta{position:relative;border-radius:var(--r-lg);overflow:hidden;color:#fff;padding:44px 28px;text-align:center;isolation:isolate;background:var(--forest)}
+.cta img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2;opacity:.45}
+.cta::after{content:"";position:absolute;inset:0;background:rgba(30,30,30,.82);z-index:-1}
+.cta h2{font-size:clamp(24px,3.6vw,36px);margin-bottom:10px}
+.cta p{max-width:50ch;margin:0 auto 20px;opacity:.92}
+
+/* footer */
+footer{margin-top:50px;background:#1F1F1F;color:#E5E5E5;padding:40px 0 20px}
+.foot{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:28px}
+footer h4{font-family:var(--display);font-size:14px;color:var(--gold-b);margin-bottom:10px}
+footer a{display:block;font-size:14px;padding:3px 0;color:#E5E5E5;opacity:.85}
+footer a:hover{opacity:1;color:var(--gold-b)}
+footer p{font-size:14px;opacity:.85;max-width:34ch}
+.copy{margin-top:28px;padding-top:16px;border-top:1px solid #ffffff22;font-size:13px;opacity:.7;text-align:center}
+
+/* lightbox */
+dialog{border:0;border-radius:var(--r-lg);padding:0;max-width:min(560px,94vw);width:100%;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);margin:auto}
+dialog::backdrop{background:rgba(20,15,5,.7);backdrop-filter:blur(3px)}
+dialog img{width:100%;max-height:60vh;object-fit:cover}
+dialog .in{padding:18px 20px 20px}
+dialog h3{font-size:20px;margin-bottom:6px}
+dialog p{color:var(--muted);font-size:14.5px;margin-bottom:14px}
+dialog .x{position:absolute;top:10px;right:10px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.92);font-size:20px}
+
+#toTop{position:fixed;right:16px;bottom:18px;width:46px;height:46px;border-radius:50%;background:var(--forest);color:#fff;font-size:20px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:60}
+#toTop.show{opacity:1;pointer-events:auto}
+#toTop:hover{transform:translateY(-3px)}
+
+/* scroll reveal */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .6s,transform .6s}
+.rv.in{opacity:1;transform:none}
+
+/* ---------- responsive ---------- */
+@media (max-width:1020px){
+  .hero{grid-template-columns:1fr 210px}
+  .side-menu{display:none}
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .styles{grid-template-columns:repeat(3,1fr)}
+  .foot{grid-template-columns:1fr 1fr}
+}
+@media (max-width:780px){
+  .hero{grid-template-columns:1fr}
+  .side-tiles{grid-template-columns:1fr 1fr;grid-template-rows:none}
+  .head-row{flex-wrap:wrap}
+  .search{order:3;flex-basis:100%;max-width:none}
+  .head-links .lnk{display:none}
+  .head-links{margin-left:auto}
+  .usp{grid-template-columns:1fr 1fr}
+  .usp div:nth-child(2){border-right:0}
+  .usp div:nth-child(-n+2){border-bottom:1px solid var(--line)}
+  .hiw{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr 1fr}
+  .safe{grid-template-columns:1fr}
+  .carousel{min-height:520px}
+  .car-btn{display:none}
+  .slide{grid-template-columns:1fr;grid-template-rows:1fr 170px}
+  .slide .txt{padding:22px 20px 14px}
+  .slide .btn-ghost{display:none}
+  .slide .pic{clip-path:none}
+  .slide p{max-width:none}
+}
+@media (max-width:520px){
+  .cards{grid-template-columns:1fr}
+  .styles{grid-template-columns:repeat(2,1fr)}
+  .foot{grid-template-columns:1fr}
+  .promo a{display:none}
+  .head-links .btn{padding:9px 14px;font-size:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  .rv{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ========== PROMO BAR ========== -->
+<div class="promo" id="promo">
+  <div class="wrap">
+    <span>🏠 Houses for rent across Uganda. Talk to the owner directly.</span>
+    <a href="/">Browse now</a>
+    <button type="button" aria-label="Close banner" onclick="document.getElementById('promo').remove()">×</button>
+  </div>
+</div>
+
+<!-- ========== HEADER ========== -->
+<header class="top">
+  <div class="wrap head-row">
+    <a class="logo" href="/" aria-label="newplus home"><img src="/logo.svg" alt="" width="32" height="32">newplus<i>.</i></a>
+    <form class="search" role="search" onsubmit="return helpSearch(event)">
+      <input id="q" type="search" placeholder="Search help topics: price, payment, safety…" aria-label="Search help topics" autocomplete="off">
+      <button type="submit">Search</button>
+    </form>
+    <nav class="head-links">
+      <a class="lnk" href="#how">How it works</a>
+      <a class="lnk" href="#faq">Help</a>
+      <a class="btn btn-gold" href="/">Get started</a>
+    </nav>
+  </div>
+  <div class="subnav">
+    <div class="wrap" id="subnav">
+      <a href="#top" class="on">About</a>
+      <a href="#styles">Home inspiration</a>
+      <a href="#how">How it works</a>
+      <a href="#why">Why newplus</a>
+      <a href="#safety">Rent safely</a>
+      <a href="#faq">FAQ</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<div class="wrap">
+
+  <!-- ========== HERO ========== -->
+  <div class="hero">
+    <aside class="side-menu" aria-label="Explore this page">
+      <h3>Explore</h3>
+      <a href="#styles"><span>🛋️</span>Home inspiration</a>
+      <a href="#how"><span>📱</span>How it works</a>
+      <a href="#why"><span>⭐</span>Why newplus</a>
+      <a href="#safety"><span>🛡️</span>Rent safely</a>
+      <a href="#faq"><span>💬</span>Questions</a>
+      <a href="/privacy.html"><span>🔒</span>Privacy Policy</a>
+      <a href="/terms.html"><span>📄</span>Terms of Service</a>
+    </aside>
+
+    <div class="carousel" id="carousel" aria-roledescription="carousel" aria-label="About newplus highlights">
+      <div class="slide s1 on">
+        <div class="txt">
+          <span class="tag">ABOUT NEWPLUS</span>
+          <h1 style="font-size:clamp(24px,3.2vw,38px);font-weight:800;letter-spacing:-.5px">Find your next home, nearby.</h1>
+          <p>Browse houses for rent near you in Uganda and message the landlord directly.</p>
+          <div class="actions"><a class="btn btn-gold" href="/">Browse houses</a><a class="btn btn-ghost" href="#how">How it works</a></div>
+        </div>
+        <div class="pic"><img src="/about-img/lounge-white.jpg" alt="Bright, calm living room with white walls and large windows"></div>
+      </div>
+      <div class="slide s2">
+        <div class="txt">
+          <span class="tag">FOR LANDLORDS</span>
+          <h2>Post what’s for rent in minutes.</h2>
+          <p>Share a house as easily as a status update. People nearby see it right away.</p>
+          <div class="actions"><a class="btn btn-dark" href="/">Post a house</a></div>
+        </div>
+        <div class="pic"><img src="/about-img/bedroom-view.jpg" alt="Modern bedroom with a desk and a large window overlooking the hills"></div>
+      </div>
+      <div class="slide s3">
+        <div class="txt">
+          <span class="tag">DIRECT CHAT</span>
+          <h2>Talk first. Decide with confidence.</h2>
+          <p>Ask your questions in the app, then arrange a viewing the safe way.</p>
+          <div class="actions"><a class="btn btn-gold" href="#safety">Rent safely</a></div>
+        </div>
+        <div class="pic"><img src="/about-img/lounge-warm.jpg" alt="Warm, colourful sitting room with a golden curtain and patterned rug"></div>
+      </div>
+      <button class="car-btn prev" aria-label="Previous slide" type="button">‹</button>
+      <button class="car-btn next" aria-label="Next slide" type="button">›</button>
+      <div class="dots" id="dots"></div>
+      <div class="bar" id="bar"></div>
+    </div>
+
+    <div class="side-tiles">
+      <a class="tile" href="/"><img src="/about-img/open-plan.jpg" alt="Open-plan kitchen and living space"><div><b>Open-plan living</b><small>Browse homes →</small></div></a>
+      <a class="tile" href="/"><img src="/about-img/bedroom-classic.jpg" alt="Elegant bedroom with a padded headboard"><div><b>Comfortable bedrooms</b><small>Find yours →</small></div></a>
+    </div>
+  </div>
+
+  <!-- ========== USP STRIP ========== -->
+  <div class="usp rv">
+    <div><span class="ic">📍</span><span><b>Houses near you</b><small>Sort by district or distance</small></span></div>
+    <div><span class="ic">💬</span><span><b>Chat with the owner</b><small>Message right inside the app</small></span></div>
+    <div><span class="ic">📲</span><span><b>Mobile Money or card</b><small>UGX 5,000 per month</small></span></div>
+    <div><span class="ic">⚡</span><span><b>Live updates</b><small>New houses appear instantly</small></span></div>
+  </div>
+
+  <!-- ========== WHAT IS NEWPLUS ========== -->
+  <section>
+    <div class="sec-head"><h2>What is newplus.app?</h2><a href="/">Get started →</a></div>
+    <div class="sec-body rv">
+      <p class="lead" style="margin:0">newplus.app is an app for finding houses for rent near you in Uganda. Anyone looking to rent can browse listings, find one that fits, and message the landlord directly to sort out the details. Landlords can post a house as easily as sharing a status. No long forms, no running around.</p>
+    </div>
+  </section>
+
+  <!-- ========== HOME INSPIRATION ========== -->
+  <section id="styles">
+    <div class="sec-head forest"><h2>🛋️ Home inspiration: what kind of place do you want?</h2></div>
+    <div class="sec-body rv">
+      <p class="lead">Tap a picture to see it bigger. These are style ideas to help you describe the kind of home you’re looking for.</p>
+      <div class="styles" id="styleGrid"></div>
+    </div>
+  </section>
+
+  <!-- ========== HOW IT WORKS ========== -->
+  <section id="how">
+    <div class="sec-head"><h2>How it works</h2><span style="font-size:13px;font-weight:600">Tap a step</span></div>
+    <div class="sec-body">
+      <div class="hiw">
+        <div class="steps" id="steps">
+          <button class="step on" type="button" data-i="0"><span class="n">1</span><span><b>Create a profile</b><p>Sign up with your phone number, pick a 4-digit PIN, and add your name, date of birth and a profile photo.</p></span></button>
+          <button class="step" type="button" data-i="1"><span class="n">2</span><span><b>Browse houses nearby</b><p>Posting is as simple as sharing a status. Say what’s for rent and people nearby see it right away. Looking to rent? Browse what’s near you, sorted by district or distance.</p></span></button>
+          <button class="step" type="button" data-i="2"><span class="n">3</span><span><b>Message the landlord</b><p>Found a house that fits, or someone interested in yours? Message them directly from the app to work out the details.</p></span></button>
+        </div>
+        <div class="phone" aria-hidden="true">
+          <div class="screen on">
+            <div class="scr-t">Create your profile</div>
+            <div class="field f">📞 +256 7•• ••• •••</div>
+            <div class="field">Your name</div>
+            <div class="field">Date of birth</div>
+            <div class="scr-t" style="font-size:13px;margin-top:6px">Choose a 4-digit PIN</div>
+            <div class="pin"><i>•</i><i>•</i><i>•</i><i>•</i></div>
+            <div class="btn btn-gold" style="margin-top:auto">Continue</div>
+          </div>
+          <div class="screen">
+            <div class="scr-t">Houses near you</div>
+            <div class="field">🔎 Search by area or district</div>
+            <div class="mini"><img src="/about-img/bedroom-classic.jpg" alt=""><div><b>Cosy 2-bedroom</b>Your area, your district<br><em>UGX •••,000</em></div></div>
+            <div class="mini"><img src="/about-img/open-plan.jpg" alt=""><div><b>Bright open-plan</b>Near you<br><em>UGX •••,000</em></div></div>
+            <div class="mini"><img src="/about-img/lounge-white.jpg" alt=""><div><b>Spacious family home</b>Nearby<br><em>UGX •••,000</em></div></div>
+          </div>
+          <div class="screen">
+            <div class="scr-t">💬 Chat with the owner</div>
+            <div class="bubble l">Hello, is the house still available?</div>
+            <div class="bubble r">Yes it is. When would you like to see it?</div>
+            <div class="bubble l">Saturday morning works for me.</div>
+            <div class="bubble r">Great, see you then. 👍</div>
+            <div class="field" style="margin-top:auto">Type a message…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== STATS ========== -->
+  <section>
+    <div class="sec-body rv" style="border-top:1px solid var(--line);border-radius:var(--r)">
+      <div class="stats">
+        <div class="stat"><b>UGX <span data-count="5000">5,000</span></b><small>per month, no auto-renew</small></div>
+        <div class="stat"><b data-count="3">3</b><small>simple steps to get started</small></div>
+        <div class="stat"><b data-count="4">4</b><small>digit PIN to sign in</small></div>
+        <div class="stat"><b data-count="1">1</b><small>app for browsing and chatting</small></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== WHY NEWPLUS ========== -->
+  <section id="why">
+    <div class="sec-head clay"><h2>⭐ Why people use newplus</h2></div>
+    <div class="sec-body">
+      <div class="cards">
+        <div class="fcard rv"><span class="badge">Near you</span><div class="ic">📍</div><h3>Search by location</h3><p>Browse by district or distance so you only see houses that make sense for you.</p></div>
+        <div class="fcard rv"><span class="badge">Direct</span><div class="ic">💬</div><h3>Talk to the owner</h3><p>Message the landlord in the app and get answers before you travel anywhere.</p></div>
+        <div class="fcard rv"><span class="badge">Live</span><div class="ic">⚡</div><h3>Always up to date</h3><p>When a house is added, changed or taken off, the list updates without refreshing.</p></div>
+        <div class="fcard rv"><span class="badge">Easy</span><div class="ic">🔐</div><h3>Simple sign-in</h3><p>Your phone number and a 4-digit PIN. No long passwords to remember.</p></div>
+        <div class="fcard rv"><span class="badge">Flexible</span><div class="ic">📲</div><h3>Pay your way</h3><p>Pay with Mobile Money or through Pesapal. Subscriptions never renew on their own.</p></div>
+        <div class="fcard rv"><span class="badge">🇺🇬 Local</span><div class="ic">🏡</div><h3>Made for Uganda</h3><p>Built for how renting actually works here, from your phone, wherever you are.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== GALLERY ========== -->
+  <section>
+    <div class="sec-head"><h2>Homes people dream about</h2><span style="font-size:13px;font-weight:600">Swipe →</span></div>
+    <div class="sec-body rv">
+      <div class="strip" id="strip"></div>
+    </div>
+  </section>
+
+  <!-- ========== SAFETY ========== -->
+  <section id="safety">
+    <div class="sec-head forest"><h2>🛡️ Rent safely</h2></div>
+    <div class="sec-body rv">
+      <p class="lead">newplus connects you with people about houses. We don’t inspect houses or verify listings, so use the same judgment you would with any private rental.</p>
+      <div class="safe">
+        <div><span class="ic">🤝</span><span><b>Meet in a public place</b><small>Meet the landlord somewhere safe before visiting.</small></span></div>
+        <div><span class="ic">📑</span><span><b>Check ownership documents</b><small>Verify the landlord can really rent out the house before you pay.</small></span></div>
+        <div><span class="ic">✍️</span><span><b>Agree everything clearly</b><small>Price, condition and how payment happens are agreed between you and the landlord.</small></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== FAQ ========== -->
+  <section id="faq">
+    <div class="sec-head"><h2>💬 Questions people ask</h2></div>
+    <div class="sec-body">
+      <div class="faq-tools"><input id="faqSearch" type="search" placeholder="Filter questions…" aria-label="Filter questions"></div>
+      <div id="faqList">
+        <div class="qa open"><button type="button">What is newplus?</button><div class="a">newplus is an app for finding houses for rent near you in Uganda. Browse listings, then message the landlord directly to sort out the details.</div></div>
+        <div class="qa"><button type="button">How much does it cost?</button><div class="a">Posting, browsing and chatting need an active monthly subscription of UGX 5,000 per month. It does not renew automatically, so you only pay when you choose to.</div></div>
+        <div class="qa"><button type="button">How do I pay?</button><div class="a">You can pay by Mobile Money, which is verified manually, or through our payment processor, Pesapal.</div></div>
+        <div class="qa"><button type="button">What happens when my subscription ends?</button><div class="a">Your account and past conversations are not deleted. You just can’t browse or start new chats until you subscribe again.</div></div>
+        <div class="qa"><button type="button">Do you verify listings or landlords?</button><div class="a">No. We don’t verify that a listing is genuine or that a landlord owns the house. Always meet in a safe public place and check ownership documents before paying.</div></div>
+        <div class="qa"><button type="button">Does newplus take part in the rental?</button><div class="a">No. Any agreement about a house (price, condition and payment) is made directly between the landlord and the tenant. The conversations can happen on newplus.app.</div></div>
+        <div class="qa"><button type="button">How is my information protected?</button><div class="a">Read our <a href="/privacy.html" style="color:var(--gold);text-decoration:underline">Privacy Policy</a> for details on what we collect and how it is used.</div></div>
+      </div>
+      <div class="empty" id="faqEmpty">No matching questions. Try another word or email us at the bottom of the page.</div>
+    </div>
+  </section>
+
+  <!-- ========== CTA ========== -->
+  <section>
+    <div class="cta rv">
+      <img src="/about-img/lounge-white.jpg" alt="">
+      <h2>Ready to find your next home?</h2>
+      <p>Create your profile in a minute and start browsing houses near you.</p>
+      <a class="btn btn-gold" href="/" style="font-size:16px;padding:14px 30px">Get started</a>
+    </div>
+  </section>
+
+</div>
+</main>
+
+<!-- ========== FOOTER ========== -->
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <a class="logo" href="/" style="color:#fff;margin-bottom:10px"><img src="/logo.svg" alt="" width="30" height="30">newplus<i>.</i></a>
+        <p>Find houses for rent nearby in Uganda and talk to the owner directly.</p>
+      </div>
+      <div><h4>Explore</h4><a href="/">Browse houses</a><a href="#how">How it works</a><a href="#why">Why newplus</a></div>
+      <div><h4>Help</h4><a href="#faq">FAQ</a><a href="#safety">Rent safely</a><a href="mailto:byeretasamuel250@gmail.com">Contact us</a></div>
+      <div><h4>Legal</h4><a href="/privacy.html">Privacy Policy</a><a href="/terms.html">Terms of Service</a></div>
+    </div>
+    <div class="copy">© <span id="yr">2026</span> newplus.app. All rights reserved.</div>
+  </div>
+</footer>
+
+<button id="toTop" type="button" aria-label="Back to top">↑</button>
+
+<dialog id="lb">
+  <button class="x" type="button" aria-label="Close" onclick="document.getElementById('lb').close()">×</button>
+  <img id="lbImg" src="" alt="">
+  <div class="in"><h3 id="lbT"></h3><p id="lbP"></p><a class="btn btn-gold" href="/">Search for homes like this</a></div>
+</dialog>
+
+<script>
+(function(){
+  var $=function(s,c){return (c||document).querySelector(s)}, $$=function(s,c){return Array.prototype.slice.call((c||document).querySelectorAll(s))};
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('#yr').textContent=new Date().getFullYear();
+
+  /* ---- hero carousel ---- */
+  var slides=$$('.slide'), dotsEl=$('#dots'), bar=$('#bar'), idx=0, timer=null, DUR=6000;
+  slides.forEach(function(_,i){var b=document.createElement('button');b.type='button';b.setAttribute('aria-label','Go to slide '+(i+1));b.onclick=function(){go(i)};dotsEl.appendChild(b)});
+  function go(n){
+    idx=(n+slides.length)%slides.length;
+    slides.forEach(function(s,i){s.classList.toggle('on',i===idx)});
+    $$('button',dotsEl).forEach(function(d,i){d.classList.toggle('on',i===idx)});
+    restart();
+  }
+  function restart(){
+    clearTimeout(timer); bar.style.transition='none'; bar.style.width='0';
+    if(reduce) return;
+    void bar.offsetWidth; bar.style.transition='width '+DUR+'ms linear'; bar.style.width='100%';
+    timer=setTimeout(function(){go(idx+1)},DUR);
+  }
+  $('.prev').onclick=function(){go(idx-1)}; $('.next').onclick=function(){go(idx+1)};
+  var car=$('#carousel');
+  car.addEventListener('mouseenter',function(){clearTimeout(timer);bar.style.transition='none';bar.style.width='0'});
+  car.addEventListener('mouseleave',restart);
+  var sx=null;
+  car.addEventListener('touchstart',function(e){sx=e.touches[0].clientX},{passive:true});
+  car.addEventListener('touchend',function(e){if(sx===null)return;var d=e.changedTouches[0].clientX-sx;if(Math.abs(d)>40)go(idx+(d<0?1:-1));sx=null});
+  go(0);
+
+  /* ---- home inspiration (one list drives the grid, the lightbox and the gallery strip) ---- */
+  var styles=[
+    {t:'Modern bedrooms',img:'bedroom-view.jpg',d:'Clean lines, a work desk and big windows. Great if you want light and a view.'},
+    {t:'Classic comfort',img:'bedroom-classic.jpg',d:'A calm, elegant bedroom with soft colours. Perfect for a restful home.'},
+    {t:'Warm & characterful',img:'lounge-warm.jpg',d:'Rich colours, patterns and personality for people who love a homely feel.'},
+    {t:'Calm & minimal',img:'lounge-white.jpg',d:'Bright, airy rooms with plenty of space and natural light.'},
+    {t:'Open-plan living',img:'open-plan.jpg',d:'Kitchen and living area in one, ideal for families who like to be together.'}
+  ];
+  var grid=$('#styleGrid'), strip=$('#strip');
+  styles.forEach(function(s,i){
+    var b=document.createElement('button'); b.type='button'; b.className='style';
+    b.innerHTML='<div class="ph"><img loading="lazy" src="/about-img/'+s.img+'" alt="'+s.t+'"></div><span>'+s.t.replace('&','&amp;')+'</span>';
+    b.onclick=function(){openLb(i)}; grid.appendChild(b);
+    var c=document.createElement('button'); c.type='button';
+    c.innerHTML='<img loading="lazy" src="/about-img/'+s.img+'" alt="'+s.t+'"><span>'+s.t.replace('&','&amp;')+'</span>';
+    c.onclick=function(){openLb(i)}; strip.appendChild(c);
+  });
+  var lb=$('#lb');
+  function openLb(i){var s=styles[i];$('#lbImg').src='/about-img/'+s.img;$('#lbImg').alt=s.t;$('#lbT').textContent=s.t;$('#lbP').textContent=s.d;lb.showModal()}
+  lb.addEventListener('click',function(e){if(e.target===lb)lb.close()});
+
+  /* ---- how it works: tap a step, the phone changes ---- */
+  var steps=$$('.step'), screens=$$('.screen'), auto=null, cur=0;
+  function pick(i){cur=i;steps.forEach(function(s,k){s.classList.toggle('on',k===i)});screens.forEach(function(s,k){s.classList.toggle('on',k===i)})}
+  steps.forEach(function(s){s.onclick=function(){clearInterval(auto);pick(+s.dataset.i)}});
+  if(!reduce) auto=setInterval(function(){pick((cur+1)%3)},5000);
+
+  /* ---- FAQ accordion + filter + header search ---- */
+  var qas=$$('.qa');
+  qas.forEach(function(q){$('button',q).onclick=function(){q.classList.toggle('open')}});
+  function filter(v){
+    v=v.trim().toLowerCase(); var n=0;
+    qas.forEach(function(q){var m=!v||q.textContent.toLowerCase().indexOf(v)>-1;q.style.display=m?'':'none';if(m)n++});
+    $('#faqEmpty').style.display=n?'none':'block';
+  }
+  $('#faqSearch').addEventListener('input',function(e){filter(e.target.value)});
+  window.helpSearch=function(e){
+    e.preventDefault(); var v=$('#q').value; $('#faqSearch').value=v; filter(v);
+    $('#faq').scrollIntoView({behavior:reduce?'auto':'smooth'});
+    if(v.trim()){var f=qas.filter(function(q){return q.style.display!=='none'})[0];if(f)f.classList.add('open')}
+    return false;
+  };
+
+  /* ---- scroll reveal + animated counters ---- */
+  function count(el){
+    var t=+el.dataset.count, start=null;
+    if(reduce||t<10){el.textContent=t.toLocaleString('en-UG');return}
+    function f(ts){if(!start)start=ts;var p=Math.min((ts-start)/1200,1);el.textContent=Math.round(t*(1-Math.pow(1-p,3))).toLocaleString('en-UG');if(p<1)requestAnimationFrame(f)}
+    requestAnimationFrame(f);
+  }
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');$$('[data-count]',e.target).forEach(count);io.unobserve(e.target)}})},{threshold:.15});
+    $$('.rv').forEach(function(el){io.observe(el)});
+  } else { $$('.rv').forEach(function(el){el.classList.add('in')}); }
+
+  /* ---- sub-nav highlight + back to top ---- */
+  var links=$$('#subnav a'), ids=links.map(function(a){return a.getAttribute('href')});
+  var topBtn=$('#toTop');
+  window.addEventListener('scroll',function(){
+    topBtn.classList.toggle('show',window.scrollY>600);
+    var y=window.scrollY+160, c=0;
+    ids.forEach(function(id,i){var el=document.querySelector(id);if(el&&el.getBoundingClientRect().top+window.scrollY<=y)c=i});
+    links.forEach(function(a,i){a.classList.toggle('on',i===c)});
+  },{passive:true});
+  topBtn.onclick=function(){window.scrollTo({top:0,behavior:reduce?'auto':'smooth'})};
+})();
+</script>
+</body>
+</html>
